@@ -343,11 +343,43 @@
                 "$ref": "#/components/schemas/DemoStateActionRequest"
               },
               "examples": {
-                "requestQuote": {
-                  "summary": "Price a different coverage level",
+                "quoteWithAddOns": {
+                  "summary": "Price a different cover, with optional extras",
                   "value": {
                     "action": "request-quote",
-                    "coverage": "Comprehensive"
+                    "coverage": "Comprehensive",
+                    "addOns": [
+                      "roadside",
+                      "glass"
+                    ],
+                    "deductible": 500
+                  }
+                },
+                "addVehicle": {
+                  "summary": "Put a second car on the policy",
+                  "value": {
+                    "action": "add-vehicle",
+                    "vehicle": {
+                      "year": "2021",
+                      "make": "Toyota",
+                      "model": "Corolla",
+                      "vin": "JTDBR32E720012345",
+                      "plate": "9LMN044",
+                      "primaryUse": "Pleasure"
+                    }
+                  }
+                },
+                "renew": {
+                  "summary": "Renew, adding a claim-free year to the bonus",
+                  "value": {
+                    "action": "renew-policy"
+                  }
+                },
+                "cancel": {
+                  "summary": "Cancel; a reason is required",
+                  "value": {
+                    "action": "cancel-policy",
+                    "reason": "Sold the car."
                   }
                 },
                 "fileSmallClaim": {
@@ -357,54 +389,57 @@
                     "claim": {
                       "type": "Glass",
                       "incidentDate": "2026-07-18",
-                      "description": "Stone chip in the windscreen on the motorway.",
+                      "description": "Stone chip in the windscreen.",
                       "estimatedAmount": 640
                     }
                   }
                 },
-                "fileLargeClaim": {
-                  "summary": "Above $2,000, so it starts as pending review",
+                "fileClaimWithThirdParty": {
+                  "summary": "Above $2,000, with the other driver's details",
                   "value": {
                     "action": "file-claim",
                     "claim": {
                       "type": "Collision",
                       "incidentDate": "2026-07-18",
-                      "description": "Rear-ended at a junction; bumper and boot lid damaged.",
-                      "estimatedAmount": 4200
+                      "description": "Rear-ended at a junction.",
+                      "estimatedAmount": 4200,
+                      "thirdParty": {
+                        "name": "Jordan Miller",
+                        "plate": "7BKD221",
+                        "insurer": "Cedar Mutual"
+                      }
                     }
                   }
                 },
-                "attachDocument": {
-                  "summary": "Record a file name against the claim",
+                "recordInspection": {
+                  "summary": "Agent: what the inspection found",
                   "value": {
-                    "action": "upload-claim-document",
-                    "document": {
-                      "fileName": "accident-photo.jpg",
-                      "sizeLabel": "1.4 MB"
+                    "action": "record-inspection",
+                    "inspection": {
+                      "outcome": "damage-confirmed",
+                      "notes": "Rear panel and boot lid, as described."
                     }
                   }
                 },
-                "approveClaim": {
-                  "summary": "Agent decision, note required",
+                "requestAssistance": {
+                  "summary": "Needs the roadside add-on on the policy",
                   "value": {
-                    "action": "approve-claim",
-                    "reviewNote": "Damage is consistent with the photos and covered under the policy."
+                    "action": "request-assistance",
+                    "assistance": {
+                      "kind": "Tow",
+                      "location": "I-80 westbound, mile 42"
+                    }
                   }
                 },
-                "payInvoiceAccepted": {
-                  "summary": "The one card this demo accepts",
+                "payWithSavedCard": {
+                  "summary": "Pay without re-entering a card",
                   "value": {
                     "action": "pay-invoice",
-                    "card": {
-                      "nameOnCard": "Alex Carter",
-                      "cardNumber": "4111111111111111",
-                      "expiry": "12/30",
-                      "cvv": "123"
-                    }
+                    "paymentMethodId": "card-1"
                   }
                 },
                 "payInvoiceDeclined": {
-                  "summary": "Any other well-formed card is declined with 409",
+                  "summary": "Any card but the demo one is declined with 409",
                   "value": {
                     "action": "pay-invoice",
                     "card": {
@@ -413,6 +448,14 @@
                       "expiry": "01/29",
                       "cvv": "999"
                     }
+                  }
+                },
+                "refund": {
+                  "summary": "Agent: refund a paid invoice, with a reason",
+                  "value": {
+                    "action": "refund-invoice",
+                    "invoiceId": "invoice-jun",
+                    "reason": "Duplicate charge."
                   }
                 }
               }
@@ -674,6 +717,7 @@
         "enum": [
           "submitted",
           "in-review",
+          "inspection-scheduled",
           "more-info-needed",
           "approved",
           "rejected",
@@ -685,6 +729,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "id",
           "year",
           "make",
           "model",
@@ -694,6 +739,9 @@
           "updatedAt"
         ],
         "properties": {
+          "id": {
+            "type": "string"
+          },
           "year": {
             "type": "string",
             "pattern": "^(19|20)\\d{2}$"
@@ -763,13 +811,18 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "id",
           "fullName",
           "licenseNumber",
           "licenseState",
           "yearsLicensed",
+          "isPrimary",
           "updatedAt"
         ],
         "properties": {
+          "id": {
+            "type": "string"
+          },
           "fullName": {
             "type": "string",
             "maxLength": 80
@@ -785,6 +838,10 @@
           "yearsLicensed": {
             "type": "string",
             "pattern": "^\\d{1,2}$"
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "description": "The policyholder. Cannot be removed."
           },
           "updatedAt": {
             "type": "string"
@@ -824,12 +881,18 @@
         "additionalProperties": false,
         "required": [
           "number",
+          "status",
           "coverage",
-          "annualPremium",
+          "addOns",
           "deductible",
+          "annualPremium",
+          "instalmentPlan",
           "effectiveFrom",
           "renewsOn",
-          "updatedAt"
+          "noClaimsYears",
+          "updatedAt",
+          "endedOn",
+          "endedReason"
         ],
         "properties": {
           "number": {
@@ -838,17 +901,27 @@
               "NL-2026-004821"
             ]
           },
+          "status": {
+            "$ref": "#/components/schemas/PolicyStatus"
+          },
           "coverage": {
             "$ref": "#/components/schemas/CoverageTier"
           },
-          "annualPremium": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Whole US dollars."
+          "addOns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddOnId"
+            }
           },
           "deductible": {
+            "$ref": "#/components/schemas/DeductibleChoice"
+          },
+          "annualPremium": {
             "type": "integer",
             "minimum": 0
+          },
+          "instalmentPlan": {
+            "$ref": "#/components/schemas/InstalmentPlan"
           },
           "effectiveFrom": {
             "type": "string"
@@ -856,8 +929,25 @@
           "renewsOn": {
             "type": "string"
           },
+          "noClaimsYears": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Claim-free years. 5% off each, capped at 25%. Reset to 0 when a claim settles."
+          },
           "updatedAt": {
             "type": "string"
+          },
+          "endedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -866,22 +956,38 @@
         "additionalProperties": false,
         "required": [
           "reference",
+          "kind",
           "coverage",
+          "addOns",
+          "deductible",
           "annualPremium",
           "monthlyPremium",
-          "deductible",
           "breakdown",
           "quotedAt"
         ],
         "properties": {
           "reference": {
+            "type": "string"
+          },
+          "kind": {
             "type": "string",
-            "examples": [
-              "QT-2026-3390"
-            ]
+            "enum": [
+              "new-business",
+              "endorsement"
+            ],
+            "description": "An endorsement changes the policy in force; new business issues a fresh one."
           },
           "coverage": {
             "$ref": "#/components/schemas/CoverageTier"
+          },
+          "addOns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddOnId"
+            }
+          },
+          "deductible": {
+            "$ref": "#/components/schemas/DeductibleChoice"
           },
           "annualPremium": {
             "type": "integer",
@@ -891,31 +997,12 @@
             "type": "integer",
             "minimum": 0
           },
-          "deductible": {
-            "type": "integer",
-            "minimum": 0
-          },
           "breakdown": {
             "type": "array",
-            "description": "Every line that moved the price, base rate first.",
             "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "label",
-                "amount"
-              ],
-              "properties": {
-                "label": {
-                  "type": "string",
-                  "maxLength": 60
-                },
-                "amount": {
-                  "type": "integer",
-                  "minimum": 0
-                }
-              }
-            }
+              "$ref": "#/components/schemas/PriceLine"
+            },
+            "description": "Every line that moved the price, so the total is never unexplained."
           },
           "quotedAt": {
             "type": "string"
@@ -974,6 +1061,16 @@
             "minimum": 1,
             "maximum": 100000,
             "description": "Whole US dollars. At or under 2000 the claim is approved automatically."
+          },
+          "thirdParty": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThirdParty"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -991,7 +1088,11 @@
           "autoApproved",
           "reviewNote",
           "documents",
-          "settlementAmount"
+          "thirdParty",
+          "repairShop",
+          "inspection",
+          "settlementAmount",
+          "settledDeductible"
         ],
         "properties": {
           "reference": {
@@ -1038,13 +1139,50 @@
               "$ref": "#/components/schemas/ClaimDocument"
             }
           },
+          "thirdParty": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThirdParty"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repairShop": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RepairShop"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inspection": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Inspection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "settlementAmount": {
             "type": [
               "integer",
               "null"
             ],
+            "minimum": 0
+          },
+          "settledDeductible": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "minimum": 0,
-            "description": "The estimate less the policy deductible, floored at zero. Null until settled."
+            "description": "The deductible applied, captured at settlement. Zero when glass cover paid a glass claim."
           }
         }
       },
@@ -1058,7 +1196,9 @@
           "dueOn",
           "status",
           "paidWith",
-          "paidAt"
+          "paidAt",
+          "refundedAt",
+          "refundReason"
         ],
         "properties": {
           "id": {
@@ -1079,7 +1219,8 @@
             "type": "string",
             "enum": [
               "unpaid",
-              "paid"
+              "paid",
+              "refunded"
             ]
           },
           "paidWith": {
@@ -1092,6 +1233,18 @@
             ]
           },
           "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refundedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refundReason": {
             "type": [
               "string",
               "null"
@@ -1178,14 +1331,15 @@
       "DemoState": {
         "type": "object",
         "additionalProperties": false,
-        "description": "One row, shared by every session in the environment.",
         "required": [
           "policy",
-          "vehicle",
-          "driver",
+          "vehicles",
+          "drivers",
           "quote",
-          "claim",
-          "invoice",
+          "claims",
+          "assistance",
+          "invoices",
+          "paymentMethods",
           "messages",
           "lastRead"
         ],
@@ -1193,11 +1347,21 @@
           "policy": {
             "$ref": "#/components/schemas/Policy"
           },
-          "vehicle": {
-            "$ref": "#/components/schemas/Vehicle"
+          "vehicles": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Vehicle"
+            }
           },
-          "driver": {
-            "$ref": "#/components/schemas/Driver"
+          "drivers": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/Driver"
+            }
           },
           "quote": {
             "oneOf": [
@@ -1209,18 +1373,33 @@
               }
             ]
           },
-          "claim": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Claim"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "claims": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "description": "Newest first. At most one may be open."
           },
-          "invoice": {
-            "$ref": "#/components/schemas/Invoice"
+          "assistance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistanceRequest"
+            }
+          },
+          "invoices": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Invoice"
+            },
+            "description": "Newest first."
+          },
+          "paymentMethods": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/PaymentMethod"
+            }
           },
           "messages": {
             "type": "array",
@@ -1231,12 +1410,12 @@
           "lastRead": {
             "$ref": "#/components/schemas/MessageReadState"
           }
-        }
+        },
+        "description": "One row, shared by every session in the environment."
       },
       "DemoStateActionRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "One action plus whatever that action needs. Fields not relevant to the action are ignored.",
         "required": [
           "action"
         ],
@@ -1247,29 +1426,62 @@
               "request-quote",
               "accept-quote",
               "discard-quote",
+              "renew-policy",
+              "cancel-policy",
+              "add-vehicle",
               "update-vehicle",
+              "remove-vehicle",
+              "add-driver",
               "update-driver",
+              "remove-driver",
               "file-claim",
               "upload-claim-document",
               "respond-to-claim-review",
+              "request-assistance",
               "pay-invoice",
+              "save-payment-method",
+              "remove-payment-method",
+              "change-instalment-plan",
               "send-message",
               "mark-messages-read",
               "start-claim-review",
+              "assign-repair-shop",
+              "schedule-inspection",
+              "record-inspection",
               "request-claim-information",
               "approve-claim",
               "reject-claim",
-              "settle-claim"
+              "settle-claim",
+              "dispatch-assistance",
+              "complete-assistance",
+              "refund-invoice",
+              "lapse-policy"
             ]
           },
           "coverage": {
             "$ref": "#/components/schemas/CoverageTier"
           },
+          "addOns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddOnId"
+            },
+            "description": "Deduplicated and reordered by the server."
+          },
+          "deductible": {
+            "$ref": "#/components/schemas/DeductibleChoice"
+          },
           "vehicle": {
             "$ref": "#/components/schemas/VehicleInput"
           },
+          "vehicleId": {
+            "type": "string"
+          },
           "driver": {
             "$ref": "#/components/schemas/DriverInput"
+          },
+          "driverId": {
+            "type": "string"
           },
           "claim": {
             "$ref": "#/components/schemas/ClaimInput"
@@ -1296,14 +1508,296 @@
             "maxLength": 400,
             "description": "Required by every agent decision."
           },
+          "repairShop": {
+            "$ref": "#/components/schemas/RepairShop"
+          },
+          "inspection": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "outcome",
+              "notes"
+            ],
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "damage-confirmed",
+                  "damage-disputed"
+                ]
+              },
+              "notes": {
+                "type": "string",
+                "maxLength": 400
+              }
+            }
+          },
+          "assistance": {
+            "$ref": "#/components/schemas/AssistanceInput"
+          },
+          "assistanceId": {
+            "type": "string"
+          },
           "card": {
             "$ref": "#/components/schemas/CardInput"
+          },
+          "paymentMethodId": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": "string"
+          },
+          "instalmentPlan": {
+            "$ref": "#/components/schemas/InstalmentPlan"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Required to cancel a policy or refund an invoice."
           },
           "messageBody": {
             "type": "string",
             "maxLength": 500
           }
+        },
+        "description": "One action plus whatever that action needs. Fields not relevant to the action are ignored."
+      },
+      "AddOnId": {
+        "type": "string",
+        "enum": [
+          "courtesy-car",
+          "roadside",
+          "glass",
+          "third-party-plus"
+        ],
+        "description": "Optional cover, priced as a flat annual amount each."
+      },
+      "DeductibleChoice": {
+        "type": "integer",
+        "enum": [
+          250,
+          500,
+          750,
+          1000
+        ],
+        "description": "Carrying more of a claim yourself lowers the premium."
+      },
+      "InstalmentPlan": {
+        "type": "string",
+        "enum": [
+          "annual",
+          "monthly"
+        ]
+      },
+      "PolicyStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "lapsed",
+          "cancelled"
+        ],
+        "description": "`lapsed` follows non-payment and is cleared by paying what is overdue."
+      },
+      "AssistanceKind": {
+        "type": "string",
+        "enum": [
+          "Tow",
+          "Battery",
+          "Flat tyre",
+          "Lockout",
+          "Fuel"
+        ]
+      },
+      "RepairShop": {
+        "type": "string",
+        "enum": [
+          "Northgate Auto Body",
+          "Lakeside Collision Centre",
+          "Prairie Street Garage"
+        ]
+      },
+      "PriceLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "amount"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Whole US dollars. Negative for a discount."
+          }
         }
+      },
+      "ThirdParty": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "plate",
+          "insurer"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "plate": {
+            "type": "string",
+            "maxLength": 12
+          },
+          "insurer": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "description": "The other party in an incident. Optional, but all three fields are required together."
+      },
+      "Inspection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "shop",
+          "scheduledFor",
+          "outcome",
+          "notes"
+        ],
+        "properties": {
+          "shop": {
+            "type": "string"
+          },
+          "scheduledFor": {
+            "type": "string"
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "damage-confirmed",
+                  "damage-disputed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 400
+          }
+        }
+      },
+      "AssistanceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "location",
+          "status",
+          "requestedAt",
+          "provider",
+          "etaMinutes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AssistanceKind"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "dispatched",
+              "completed"
+            ]
+          },
+          "requestedAt": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "etaMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "description": "Only available when the roadside add-on is on the policy."
+      },
+      "AssistanceInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "location"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/AssistanceKind"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 160
+          }
+        }
+      },
+      "PaymentMethod": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "last4",
+          "expiry",
+          "nameOnCard",
+          "addedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last4": {
+            "type": "string",
+            "maxLength": 4
+          },
+          "expiry": {
+            "type": "string",
+            "pattern": "^(0[1-9]|1[0-2])/\\d{2}$"
+          },
+          "nameOnCard": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "addedAt": {
+            "type": "string"
+          }
+        },
+        "description": "A saved card. The number itself is never stored."
       }
     }
   },

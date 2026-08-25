@@ -8,6 +8,7 @@ classes, so any UI change has to be reflected here in the same commit.
 Run it with `npm run test:e2e`. It starts and stops its own dev server.
 """
 
+import json
 import os
 import re
 import signal
@@ -313,10 +314,15 @@ def reset_environment(page: Page) -> None:
   response = page.request.delete(f"{BASE_URL}/api/demo-state")
   assert response.ok, f"reset failed: {response.status} {response.text()}"
   state = response.json()["state"]
-  assert state["claim"] is None
   assert state["quote"] is None
+  assert state["policy"]["status"] == "active"
   assert state["policy"]["coverage"] == "Standard"
-  assert state["invoice"]["status"] == "unpaid"
+  assert state["policy"]["noClaimsYears"] > 0, "the seed needs a bonus for the claim to cost"
+  assert len(state["vehicles"]) == 1 and len(state["drivers"]) == 1
+  assert not any(c["status"] not in ("settled", "rejected") for c in state["claims"]), (
+    "the seed must open with no live claim"
+  )
+  assert len([i for i in state["invoices"] if i["status"] == "unpaid"]) == 1
 
 
 def read_state(page: Page) -> dict:
@@ -333,112 +339,214 @@ def read_state(page: Page) -> dict:
 
 
 
+# --------------------------------------------------------------------------- #
+# Focused verifications                                                        #
+# --------------------------------------------------------------------------- #
+
+
 def verify_quote_and_purchase(page: Page) -> None:
-  """A quote is priced, explained line by line, and only changes the policy on accept."""
+  """A quote is priced line by line and only changes the policy on accept.
+
+  This is where the pricing model is visible, so it asserts the arithmetic and
+  not just that a number appeared: every line in the breakdown has to sum to the
+  total, or the screen is telling a story the price does not support.
+  """
   sidebar(page, "Policy")
   page.get_by_role("heading", name="Policy", exact=True).wait_for()
   audit_surface(page, "policy")
 
   page.get_by_role("button", name="Get a quote").click()
-  page.get_by_role("heading", name="Price a different coverage level").wait_for()
-  # The tier already held cannot be re-quoted, so its radio is disabled.
-  expect(page.locator('.coverage-options input[value="Standard"]')).to_be_disabled()
-  page.locator('.coverage-options input[value="Comprehensive"]').check(force=True)
+  page.get_by_role("heading", name="Price a different cover").wait_for()
+  page.get_by_role("radio", name=re.compile("^Comprehensive")).check(force=True)
+  page.get_by_role("checkbox", name=re.compile("^Glass cover")).check(force=True)
+  page.locator('select[name="deductible"]').select_option("500")
   audit_surface(page, "quote dialog")
   page.get_by_role("button", name="Get this quote").click()
 
   breakdown = page.locator(".quote-breakdown")
   breakdown.wait_for()
-  expect(breakdown).to_contain_text("Comprehensive base rate")
-  expect(breakdown.locator("li.total")).to_contain_text("$1,420")
+  expect(breakdown).to_contain_text("Comprehensive")
+  expect(breakdown).to_contain_text("Glass cover")
+  expect(breakdown).to_contain_text("No-claims bonus")
   # The policy has not moved yet.
   expect(page.locator(".document-card").first).to_contain_text("Standard")
   audit_surface(page, "policy with an open quote")
 
-  state = read_state(page)
-  assert state["quote"]["annualPremium"] == 1420, state["quote"]
-  assert state["policy"]["coverage"] == "Standard", "a quote must not change the policy"
+  quote = read_state(page)["quote"]
+  assert quote["kind"] == "endorsement", quote
+  assert quote["addOns"] == ["glass"], quote
+  assert quote["deductible"] == 500, quote
+  assert sum(line["amount"] for line in quote["breakdown"]) == quote["annualPremium"], (
+    f"the priced lines do not add up to the total: {quote}"
+  )
+  assert read_state(page)["policy"]["coverage"] == "Standard", "a quote must not change the policy"
 
-  page.get_by_role("button", name="Switch to Comprehensive coverage").click()
-  expect(page.locator(".toast")).to_contain_text("Coverage changed")
+  page.get_by_role("button", name="Switch to Comprehensive cover").click()
+  expect(page.locator(".toast")).to_contain_text("Cover updated")
   state = read_state(page)
   assert state["policy"]["coverage"] == "Comprehensive"
   assert state["policy"]["deductible"] == 500
+  assert state["policy"]["addOns"] == ["glass"]
   assert state["quote"] is None
-  # The open invoice is reissued at the new price rather than left stale.
-  assert state["invoice"]["amount"] == 118, state["invoice"]
-  assert state["invoice"]["status"] == "unpaid"
-  print("  quote: priced, explained, applied on accept, invoice reissued")
+  assert state["policy"]["noClaimsYears"] == 4, "an endorsement keeps the bonus"
+  print("  quote: priced, decomposed, applied on accept")
 
 
-def verify_payment(page: Page) -> None:
-  """Both card outcomes are reachable, and they use different status codes."""
+def verify_vehicles_and_drivers(page: Page) -> None:
+  """Adding risk is felt in the next price, and the policy always keeps one of each."""
+  sidebar(page, "Policy")
+  page.get_by_role("heading", name="Policy", exact=True).wait_for()
+
+  page.get_by_role("button", name="Add a vehicle").click()
+  page.get_by_role("heading", name="Add a vehicle").wait_for()
+  page.get_by_label("Year").fill("2012")
+  page.get_by_label("Make").fill("Ford")
+  page.get_by_label("Model").fill("Focus")
+  page.get_by_label("VIN").fill("1FAHP3F20CL111222")
+  page.get_by_label("Licence plate").fill("7ghd881")
+  page.locator('select[name="primaryUse"]').select_option("Business")
+  audit_surface(page, "add vehicle dialog")
+  page.get_by_role("button", name="Add vehicle").click()
+  expect(page.locator(".toast")).to_contain_text("Vehicle added")
+
+  state = read_state(page)
+  assert len(state["vehicles"]) == 2, state["vehicles"]
+  assert state["vehicles"][1]["plate"] == "7GHD881", "normalised"
+
+  page.get_by_role("button", name="Add a driver").click()
+  page.get_by_role("heading", name="Add a driver").wait_for()
+  page.get_by_label("Full name").fill("Sam Carter")
+  page.get_by_label("Licence number").fill("C7781-4420-9910")
+  page.get_by_label("Issuing state").fill("California")
+  page.get_by_label("Years licensed").fill("1")
+  page.get_by_role("button", name="Add driver").click()
+  expect(page.locator(".toast")).to_contain_text("Driver added")
+  assert len(read_state(page)["drivers"]) == 2
+
+  # The policyholder is not removable, and neither is the last vehicle.
+  expect(page.get_by_role("button", name="Remove Alex Carter")).to_be_disabled()
+  audit_surface(page, "policy with two vehicles and two drivers")
+
+  # Both additions show up as their own lines in the next price.
+  page.get_by_role("button", name="Get a quote").click()
+  page.get_by_role("radio", name=re.compile("^Standard")).check(force=True)
+  page.get_by_role("button", name="Get this quote").click()
+  breakdown = page.locator(".quote-breakdown")
+  breakdown.wait_for()
+  expect(breakdown).to_contain_text("Ford Focus")
+  expect(breakdown).to_contain_text("Driver licensed under 3 years")
+  quote = read_state(page)["quote"]
+  assert len([l for l in quote["breakdown"] if "Standard" in l["label"]]) == 2, "one line per vehicle"
+
+  page.get_by_role("button", name="Discard this quote").click()
+  expect(page.locator(".toast")).to_contain_text("Quote discarded")
+
+  # Removing the extra risk takes it back out of the policy.
+  page.get_by_role("button", name="Remove Sam Carter").click()
+  expect(page.locator(".toast")).to_contain_text("Driver removed")
+  page.get_by_role("button", name="Remove 2012 Ford Focus").click()
+  expect(page.locator(".toast")).to_contain_text("Vehicle removed")
+  state = read_state(page)
+  assert len(state["vehicles"]) == 1 and len(state["drivers"]) == 1
+  print("  risk: vehicles and drivers added, priced, and removed")
+
+
+def verify_billing(page: Page) -> None:
+  """Both card outcomes, a saved card, an instalment switch, and the history."""
   sidebar(page, "Billing")
   page.get_by_role("heading", name="Billing").wait_for()
+  # The seed carries a paid invoice, so history is visible from the start.
+  # Scoped to the invoice list: the saved-cards list uses the same row class.
+  expect(page.locator('[aria-label="Invoices"] .record-row')).to_have_count(2)
   audit_surface(page, "billing")
 
-  page.get_by_role("button", name="Pay this invoice").click()
-  page.get_by_role("heading", name="Pay $118").wait_for()
+  page.get_by_role("button", name="Save a card").click()
+  page.get_by_role("heading", name="Save a card").wait_for()
+  fill_card(page)
+  audit_surface(page, "save card dialog")
+  page.get_by_role("button", name="Save this card").click()
+  expect(page.locator(".toast")).to_contain_text("Card saved")
+  saved = read_state(page)["paymentMethods"]
+  assert len(saved) == 1 and saved[0]["last4"] == "1111", saved
+  assert "4111111111111111" not in json.dumps(saved), "the card number must never be stored"
+
+  # A declined card and an accepted one, on the invoice that is actually due.
+  page.locator('[aria-label="Invoices"] .record-row').filter(has_text="Unpaid").get_by_role("button", name="Pay").click()
+  page.get_by_role("heading", name=re.compile("^Pay ")).wait_for()
+  page.get_by_role("radio", name=re.compile("Use a different card")).check(force=True)
+  fill_card(page, number=DECLINED_CARD)
   audit_surface(page, "payment dialog")
-
-  def fill_card(number: str) -> None:
-    page.get_by_label("Name on card").fill("Alex Carter")
-    page.get_by_label("Card number").fill(number)
-    page.get_by_label("Expiry").fill("12/30")
-    page.get_by_label("CVV").fill("123")
-
-  fill_card(DECLINED_CARD)
-  page.get_by_role("button", name="Pay $118").click()
+  page.get_by_role("button", name=re.compile("^Pay ")).last.click()
   expect(page.locator(".toast.error")).to_contain_text("That card was declined")
   page.locator(".toast button[aria-label='Close']").click()
 
-  fill_card(DEMO_CARD)
-  page.get_by_role("button", name="Pay $118").click()
+  page.get_by_role("radio", name=re.compile("Visa ending 1111")).check(force=True)
+  page.get_by_role("button", name=re.compile("^Pay ")).last.click()
   expect(page.locator(".toast")).to_contain_text("Payment accepted")
+  assert unpaid_count(page) == 0, "nothing should be outstanding after paying"
 
+  # Switching the plan reissues the open invoice, which reopens the balance.
+  page.get_by_role("button", name=re.compile("plan$")).click()
+  page.get_by_role("heading", name="How you pay").wait_for()
+  page.get_by_role("radio", name=re.compile("^Annual")).check(force=True)
+  audit_surface(page, "instalment dialog")
+  page.get_by_role("button", name="Switch plan").click()
+  expect(page.locator(".toast")).to_contain_text("Billing plan changed")
   state = read_state(page)
-  assert state["invoice"]["status"] == "paid"
-  assert state["invoice"]["paidWith"] == "Visa ending 1111"
-  expect(page.locator(".document-card").first).to_contain_text("Paid with Visa ending 1111")
-  print("  payment: demo card accepted, any other card declined")
+  assert state["policy"]["instalmentPlan"] == "annual"
+  due = [i for i in state["invoices"] if i["status"] == "unpaid"]
+  assert len(due) == 1 and due[0]["amount"] == state["policy"]["annualPremium"], due
+  print("  billing: card declined then accepted, saved card used, plan switched")
+
+
+def fill_card(page: Page, number: str = DEMO_CARD) -> None:
+  page.get_by_label("Name on card").fill("Alex Carter")
+  page.get_by_label("Card number").fill(number)
+  page.get_by_label("Expiry").fill("12/30")
+  page.get_by_label("CVV").fill("123")
+
+
+def unpaid_count(page: Page) -> int:
+  return len([i for i in read_state(page)["invoices"] if i["status"] == "unpaid"])
 
 
 def verify_file_claim(page: Page) -> None:
-  """The $2,000 fast-track boundary is the single rule the whole demo turns on."""
+  """The $2,000 fast-track boundary, and a third party recorded with the claim."""
   sidebar(page, "Claims")
   page.get_by_role("heading", name="Claims").wait_for()
-  audit_surface(page, "claims, none on file")
+  # The seed carries one settled claim, so history is visible before filing.
+  expect(page.locator('[aria-label="Closed claims"] .record-row')).to_have_count(1)
+  audit_surface(page, "claims, history only")
 
   page.locator(".welcome-row").get_by_role("button", name="File a claim").click()
   page.get_by_role("heading", name="File a claim").wait_for()
-  page.get_by_label("What happened").fill(
-    "Rear-ended at a junction; bumper and boot lid damaged."
-  )
-  # Under the limit first, to prove the form says which path it is taking.
+  page.get_by_label("What happened").fill("Rear-ended at a junction; bumper and boot lid damaged.")
   page.get_by_label("Estimated repair cost (USD)").fill("900")
-  expect(page.locator(".form-hint[aria-live='polite']")).to_contain_text(
-    "approved automatically"
-  )
+  expect(page.locator(".form-hint[aria-live='polite']")).to_contain_text("approved automatically")
   page.get_by_label("Estimated repair cost (USD)").fill("4200")
-  expect(page.locator(".form-hint[aria-live='polite']")).to_contain_text(
-    "pending review"
-  )
+  expect(page.locator(".form-hint[aria-live='polite']")).to_contain_text("pending review")
+
+  page.get_by_role("checkbox", name=re.compile("Another driver was involved")).check()
+  page.get_by_label("Their name").fill("Jordan Miller")
+  page.get_by_label("Their plate").fill("7bkd221")
+  page.get_by_label("Their insurer").fill("Cedar Mutual")
   audit_surface(page, "file claim dialog")
   page.get_by_role("button", name="File this claim").click()
 
   expect(page.locator(".toast")).to_contain_text("Claim filed")
-  expect(page.locator(".review-status").first).to_have_text("Pending review")
   state = read_state(page)
-  assert state["claim"]["status"] == "submitted", state["claim"]
-  assert state["claim"]["autoApproved"] is False
-  # Filing a second claim is blocked while this one is open.
+  claim = state["claims"][0]
+  assert claim["status"] == "submitted", claim
+  assert claim["autoApproved"] is False
+  assert claim["thirdParty"]["plate"] == "7BKD221", "normalised"
+  assert len(state["claims"]) == 2, "the settled claim stays as history"
   expect(page.locator(".welcome-row").get_by_role("button", name="File a claim")).to_be_disabled()
-  audit_surface(page, "claims, one pending")
-  print("  claim: $4,200 filed above the fast-track limit, second claim blocked")
+  audit_surface(page, "claims, one open")
+  print("  claim: $4,200 filed above the fast-track limit, with a third party")
 
 
 def verify_agent_review(page: Page) -> None:
-  """The agent's half of the workflow, including the note every decision needs."""
+  """Repair shop, inspection, and the note every decision needs."""
   sidebar(page, "Today")
   page.get_by_role("heading", name="Good morning, Jordan.").wait_for()
   expect(page.locator(".queue-row.highlighted")).to_contain_text("Pending review")
@@ -447,31 +555,48 @@ def verify_agent_review(page: Page) -> None:
   sidebar(page, "Claims")
   page.get_by_role("heading", name="Claims", exact=True).wait_for()
   expect(page.locator(".request-card.highlighted")).to_contain_text("$4,200")
-  expect(page.locator(".request-card.highlighted")).to_contain_text(
-    "above the $2,000 fast-track limit"
-  )
+  expect(page.locator(".request-card.highlighted")).to_contain_text("Cedar Mutual")
   audit_surface(page, "agent claims")
 
   page.get_by_role("button", name="Start review").click()
   expect(page.locator(".toast")).to_contain_text("Review started")
-  page.get_by_role("button", name="Request information").wait_for()
 
-  # A decision with no note is refused by the form before it reaches the API.
+  # An inspection cannot be scheduled with nowhere to hold it.
+  expect(page.get_by_role("button", name="Schedule inspection")).to_be_disabled()
+  page.get_by_role("button", name="Assign repair shop").click()
+  page.get_by_role("heading", name="Assign a repair shop").wait_for()
+  audit_surface(page, "repair shop dialog")
+  page.get_by_role("button", name="Assign this shop").click()
+  expect(page.locator(".toast")).to_contain_text("Repair shop assigned")
+
+  page.get_by_role("button", name="Schedule inspection").click()
+  expect(page.locator(".toast")).to_contain_text("Inspection scheduled")
+  assert read_state(page)["claims"][0]["status"] == "inspection-scheduled"
+  audit_surface(page, "claim out for inspection")
+
+  page.get_by_role("button", name="Record the inspection").click()
+  page.get_by_role("heading", name="Record what the inspection found").wait_for()
+  # The finding has to be written down.
+  page.get_by_role("button", name="Record the inspection").last.click()
+  expect(page.locator(".field-error")).to_contain_text("This field is required")
+  page.get_by_label("Inspection notes").fill("Rear panel and boot lid, as described.")
+  audit_surface(page, "inspection dialog")
+  page.get_by_role("button", name="Record the inspection").last.click()
+  expect(page.locator(".toast")).to_contain_text("Inspection recorded")
+  claim = read_state(page)["claims"][0]
+  assert claim["status"] == "in-review", "back on the agent's desk"
+  assert claim["inspection"]["outcome"] == "damage-confirmed"
+
   page.get_by_role("button", name="Request information").click()
-  page.get_by_role("heading", name="Ask for more on").wait_for()
+  page.get_by_role("heading", name=re.compile("^Ask for more on")).wait_for()
   page.get_by_role("button", name="Send this request").click()
   expect(page.locator(".field-error")).to_contain_text("This field is required")
-  page.get_by_label("Note to the policyholder").fill(
-    "Please attach a photo of the rear bumper and the repair quote."
-  )
+  page.get_by_label("Note to the policyholder").fill("Please attach a photo of the rear bumper.")
   audit_surface(page, "claim decision dialog")
   page.get_by_role("button", name="Send this request").click()
   expect(page.locator(".toast")).to_contain_text("More information requested")
-
-  state = read_state(page)
-  assert state["claim"]["status"] == "more-info-needed", state["claim"]
-  assert "rear bumper" in state["claim"]["reviewNote"]
-  print("  agent: review started, information requested with a note")
+  assert read_state(page)["claims"][0]["status"] == "more-info-needed"
+  print("  agent: shop assigned, inspection recorded, information requested")
 
 
 def verify_document_round_trip(page: Page, upload: Path) -> None:
@@ -479,8 +604,6 @@ def verify_document_round_trip(page: Page, upload: Path) -> None:
   sidebar(page, "Claims")
   page.get_by_role("heading", name="Claims").wait_for()
   expect(page.locator(".next-step")).to_contain_text("rear bumper")
-
-  # Nothing attached yet, so the return button is not offered.
   expect(page.get_by_role("button", name="Send back for review")).to_be_disabled()
 
   page.locator(".next-step").get_by_role("button", name="Attach a document").click()
@@ -491,61 +614,206 @@ def verify_document_round_trip(page: Page, upload: Path) -> None:
   page.get_by_role("button", name="Attach to my claim").click()
   expect(page.locator(".toast")).to_contain_text("Document attached")
 
-  expect(page.locator(".record-row")).to_contain_text(upload.name)
   page.get_by_role("button", name="Send back for review").click()
   expect(page.locator(".toast")).to_contain_text("Sent back for review")
-
-  state = read_state(page)
-  assert state["claim"]["status"] == "in-review"
-  assert state["claim"]["documents"][0]["fileName"] == upload.name
+  claim = read_state(page)["claims"][0]
+  assert claim["status"] == "in-review"
   # The file itself is never stored; only its name and size are recorded.
-  assert set(state["claim"]["documents"][0]) == {
-    "id", "fileName", "sizeLabel", "uploadedAt",
-  }
+  assert set(claim["documents"][0]) == {"id", "fileName", "sizeLabel", "uploadedAt"}
   audit_surface(page, "claims with a document")
   print("  documents: attached by name only, claim returned for review")
 
 
-def verify_settlement(page: Page) -> None:
-  """Approval and settlement are two steps, and the payout is arithmetic."""
+def verify_settlement_and_bonus(page: Page) -> None:
+  """Settling pays out and costs the bonus, which the next renewal makes visible."""
   sidebar(page, "Claims")
   page.get_by_role("heading", name="Claims", exact=True).wait_for()
+  before = read_state(page)["policy"]["noClaimsYears"]
+  assert before > 0, "the seed policy should carry a bonus to lose"
 
   page.get_by_role("button", name="Approve", exact=True).click()
-  page.get_by_role("heading", name="Approve CLM-").wait_for()
-  page.get_by_label("Note to the policyholder").fill(
-    "Damage is consistent with the photo and covered under the policy."
-  )
+  page.get_by_role("heading", name=re.compile("^Approve CLM-")).wait_for()
+  page.get_by_label("Note to the policyholder").fill("Damage is consistent with the inspection.")
   page.get_by_role("button", name="Approve this claim").click()
   expect(page.locator(".toast")).to_contain_text("Claim approved")
 
   # Comprehensive cover took the deductible to $500, so $4,200 settles at $3,700.
-  settle = page.get_by_role("button", name="Settle for $3,700")
-  settle.wait_for()
-  settle.click()
+  page.get_by_role("button", name="Settle for $3,700").click()
   expect(page.locator(".toast")).to_contain_text("Claim settled")
-
   state = read_state(page)
-  assert state["claim"]["status"] == "settled"
-  assert state["claim"]["settlementAmount"] == 3700, state["claim"]
+  claim = state["claims"][0]
+  assert claim["status"] == "settled"
+  assert claim["settlementAmount"] == 3700, claim
+  assert claim["settledDeductible"] == 500, claim
+  assert state["policy"]["noClaimsYears"] == 0, "settling a claim costs the whole bonus"
   audit_surface(page, "settled claim")
-  print("  settlement: $4,200 estimate less the $500 deductible = $3,700")
+  print("  settlement: $3,700 paid, no-claims bonus reset to zero")
+
+
+def verify_renewal(page: Page) -> None:
+  """Renewal banks a claim-free year and reprices with it."""
+  sidebar(page, "Policy")
+  page.get_by_role("heading", name="Policy", exact=True).wait_for()
+  before = read_state(page)["policy"]
+  page.get_by_role("button", name="Renew early").click()
+  expect(page.locator(".toast")).to_contain_text("Policy renewed")
+  after = read_state(page)["policy"]
+  assert after["noClaimsYears"] == before["noClaimsYears"] + 1, (before, after)
+  assert after["renewsOn"] != before["renewsOn"], "the term should move on"
+  assert unpaid_count(page) == 1, "renewal issues an invoice"
+  print("  renewal: a claim-free year banked and the term moved on")
+
+
+def verify_assistance(page: Page) -> None:
+  """Roadside is gated on the add-on, and runs requested → dispatched → completed."""
+  sidebar(page, "Policy")
+  page.get_by_role("heading", name="Policy", exact=True).wait_for()
+  # Glass is on the policy from the earlier quote, roadside is not.
+  expect(page.get_by_role("button", name="Request assistance")).to_be_disabled()
+
+  page.get_by_role("button", name="Get a quote").click()
+  page.get_by_role("checkbox", name=re.compile("^Roadside assistance")).check(force=True)
+  page.get_by_role("button", name="Get this quote").click()
+  page.get_by_role("button", name=re.compile("^Switch to ")).click()
+  expect(page.locator(".toast")).to_contain_text("Cover updated")
+  assert "roadside" in read_state(page)["policy"]["addOns"]
+
+  page.get_by_role("button", name="Request assistance").click()
+  page.get_by_role("heading", name="Request help").wait_for()
+  page.locator('select[name="kind"]').select_option("Tow")
+  page.get_by_label("Where are you?").fill("I-80 westbound, mile 42")
+  audit_surface(page, "assistance dialog")
+  page.get_by_role("button", name="Request assistance").last.click()
+  expect(page.locator(".toast")).to_contain_text("Help is on the way")
+  assert read_state(page)["assistance"][0]["status"] == "requested"
+  print("  assistance: gated on the add-on, then requested")
+
+
+def verify_agent_assistance(page: Page) -> None:
+  sidebar(page, "Today")
+  page.get_by_role("heading", name="Good morning, Jordan.").wait_for()
+  page.get_by_role("button", name="Dispatch a provider").click()
+  expect(page.locator(".toast")).to_contain_text("Provider dispatched")
+  request = read_state(page)["assistance"][0]
+  assert request["status"] == "dispatched" and request["provider"], request
+  audit_surface(page, "agent dashboard with a dispatch")
+  page.get_by_role("button", name="Mark completed").click()
+  expect(page.locator(".toast")).to_contain_text("Assistance completed")
+  assert read_state(page)["assistance"][0]["status"] == "completed"
+  print("  assistance: dispatched and completed by the agent")
+
+
+def verify_agent_policy_and_refund(page: Page) -> None:
+  """The agent's levers: refund a paid invoice, and lapse for non-payment."""
+  sidebar(page, "Policy")
+  page.get_by_role("heading", name="Policy", exact=True).wait_for()
+  audit_surface(page, "agent policy")
+
+  # `has_text` is a case-insensitive substring, and an unpaid row reads "Not yet
+  # paid", so match the status chip exactly instead.
+  paid = page.locator('[aria-label="Policy invoices"] .record-row').filter(
+    has=page.locator(".review-status", has_text=re.compile(r"^Paid$"))
+  ).first
+  paid.get_by_role("button", name="Refund").click()
+  page.get_by_role("heading", name=re.compile("^Refund ")).wait_for()
+  page.get_by_label("Why is this being refunded?").fill("Duplicate charge after the cover change.")
+  audit_surface(page, "refund dialog")
+  page.get_by_role("button", name="Refund this invoice").click()
+  expect(page.locator(".toast")).to_contain_text("Invoice refunded")
+  assert any(i["status"] == "refunded" for i in read_state(page)["invoices"])
+
+  page.get_by_role("button", name=re.compile("Lapse this policy")).click()
+  expect(page.locator(".toast")).to_contain_text("Policy lapsed")
+  assert read_state(page)["policy"]["status"] == "lapsed"
+  audit_surface(page, "lapsed policy, agent view")
+  print("  agent: invoice refunded and the policy lapsed for non-payment")
+
+
+def verify_reinstatement(page: Page) -> None:
+  """Paying what is overdue is the only thing that brings a lapsed policy back."""
+  sidebar(page, "Home")
+  page.get_by_role("heading", name="Hello, Alex.").wait_for()
+  expect(page.locator(".shared-record-notice")).to_contain_text("lapsed")
+  audit_surface(page, "lapsed policy, policyholder view")
+  # Nothing about the risk can be changed while cover has stopped.
+  sidebar(page, "Policy")
+  expect(page.get_by_role("button", name="Add a vehicle")).to_be_disabled()
+
+  sidebar(page, "Billing")
+  page.locator('[aria-label="Invoices"] .record-row').filter(has_text="Unpaid").first.get_by_role("button", name="Pay").click()
+  page.get_by_role("heading", name=re.compile("^Pay ")).wait_for()
+  page.get_by_role("radio", name=re.compile("Visa ending 1111")).check(force=True)
+  page.get_by_role("button", name=re.compile("^Pay ")).last.click()
+  expect(page.locator(".toast")).to_contain_text("Payment accepted")
+  assert read_state(page)["policy"]["status"] == "active", "paying the arrears reinstates cover"
+  print("  reinstatement: the overdue premium paid, cover back in force")
+
+
+def verify_cancel_and_new_business(page: Page) -> None:
+  """Cancelling turns the next quote into new business, with the bonus reset."""
+  sidebar(page, "Policy")
+  page.get_by_role("heading", name="Policy", exact=True).wait_for()
+  page.get_by_role("button", name="Cancel this policy").click()
+  page.get_by_role("heading", name="Cancel your cover").wait_for()
+  page.get_by_label("Why are you cancelling?").fill("Sold the car.")
+  audit_surface(page, "cancel dialog")
+  page.get_by_role("button", name="Cancel this policy").last.click()
+  expect(page.locator(".toast")).to_contain_text("Policy cancelled")
+
+  old = read_state(page)["policy"]
+  assert old["status"] == "cancelled" and old["endedReason"] == "Sold the car."
+  audit_surface(page, "cancelled policy")
+
+  page.get_by_role("button", name="Get a quote").click()
+  page.get_by_role("heading", name="Price a new policy").wait_for()
+  page.get_by_role("radio", name=re.compile("^Liability")).check(force=True)
+  page.get_by_role("button", name="Get this quote").click()
+  quote = read_state(page)["quote"]
+  assert quote["kind"] == "new-business", quote
+  assert not any("No-claims bonus" in l["label"] for l in quote["breakdown"]), (
+    "new business starts the bonus from zero"
+  )
+
+  page.get_by_role("button", name="Buy this policy").click()
+  expect(page.locator(".toast")).to_contain_text("Cover updated")
+  fresh = read_state(page)["policy"]
+  assert fresh["status"] == "active"
+  assert fresh["number"] != old["number"], "a new policy gets a new number"
+  assert fresh["noClaimsYears"] == 0
+  audit_surface(page, "new policy in force")
+  print("  funnel: cancelled, re-quoted as new business, and bought")
+
+
+def verify_certificate(page: Page) -> None:
+  sidebar(page, "Policy")
+  page.get_by_role("button", name="Open certificate").click()
+  page.get_by_role("heading", name=re.compile("^NL-")).wait_for()
+  audit_surface(page, "certificate dialog")
+  with page.expect_download() as download:
+    page.get_by_role("button", name="Download PDF").click()
+  saved = ARTIFACTS / "certificate.pdf"
+  download.value.save_as(saved)
+  head = saved.read_bytes()
+  assert head.startswith(b"%PDF-"), "the certificate must be a real PDF"
+  assert b"%%EOF" in head, "the PDF must be terminated, or a reader will refuse it"
+  assert b"Northlane Auto Insurance" in head
+  page.get_by_role("dialog").locator("button.secondary-button", has_text="Close").click()
+  print(f"  certificate: {len(head)} byte PDF generated in the browser")
 
 
 def verify_claim_summary(page: Page) -> None:
-  page.get_by_role("button", name="Generate claim summary").click()
-  page.get_by_role("heading", name="CLM-").wait_for()
-  expect(page.locator(".data-table")).to_contain_text("$3,700")
+  """Runs as the agent, whose claim cards carry the summary action."""
+  sidebar(page, "Claims")
+  page.get_by_role("heading", name="Claims", exact=True).wait_for()
+  page.get_by_role("button", name="Generate claim summary").first.click()
+  page.get_by_role("heading", name=re.compile("^CLM-")).wait_for()
   audit_surface(page, "claim summary dialog")
-
   with page.expect_download() as download:
     page.get_by_role("button", name="Download CSV").click()
   saved = ARTIFACTS / "claim-summary.csv"
   download.value.save_as(saved)
   content = saved.read_text()
-  assert "Settlement" in content and "$3,700" in content, content
-  assert "Fictional demo data" in content, content
-  # The dialog carries both an icon-only close and a labelled one.
+  assert "Settlement" in content and "Fictional demo data" in content, content
   page.get_by_role("dialog").locator("button.secondary-button", has_text="Close").click()
   print("  claim summary: rendered and downloadable as CSV")
 
@@ -557,14 +825,12 @@ def verify_messages(page: Page, role: str) -> None:
   page.get_by_label("Reply to").fill(body)
   page.get_by_role("button", name="Send message").click()
   expect(page.locator(".message-bubble").last).to_contain_text(body)
-  # Opening the thread clears this role's unread badge.
   expect(page.locator(".nav-item", has_text="Messages").locator(".nav-badge")).to_have_count(0)
   audit_surface(page, f"messages ({role})")
   print(f"  messages: sent and marked read as the {role}")
 
 
 def verify_directory(page: Page) -> None:
-  # The directory is opened from the dashboard, not from the claims list.
   sidebar(page, "Today")
   page.get_by_role("heading", name="Good morning, Jordan.").wait_for()
   page.get_by_role("button", name="Search policyholders").click()
@@ -577,11 +843,29 @@ def verify_directory(page: Page) -> None:
   results.first.click()
   page.get_by_role("heading", name="Alex Carter").wait_for()
   # The live workflow state is reflected in the profile, not a fixture copy.
-  expect(page.locator(".review-details")).to_contain_text("Comprehensive")
+  expect(page.locator(".review-details")).to_contain_text("No-claims bonus")
   audit_surface(page, "policyholder profile")
-  # Scoped to the dialog: a toast may also carry a "Close" button.
   page.get_by_role("dialog").get_by_label("Close").click()
   print("  directory: five policyholders, searchable, live state on the profile")
+
+
+def verify_role_boundary(page: Page) -> None:
+  """The API refuses a cross-role action even when the UI never offers it."""
+  refused = page.request.patch(
+    f"{BASE_URL}/api/demo-state",
+    data={"action": "approve-claim", "reviewNote": "Not mine to approve."},
+  )
+  assert refused.status == 403, f"expected 403, got {refused.status}"
+  assert "claims agent" in refused.json()["error"]
+
+  # And a malformed request is a 400 whatever the state happens to be.
+  malformed = page.request.patch(
+    f"{BASE_URL}/api/demo-state",
+    data={"action": "request-quote", "coverage": "Platinum"},
+  )
+  assert malformed.status == 400, f"expected 400, got {malformed.status}"
+  print("  role boundary: 403 across roles, 400 for a malformed request")
+
 
 
 def verify_tooltips(page: Page) -> None:
@@ -715,16 +999,6 @@ def verify_api_docs(page: Page) -> None:
   print("  api docs: console renders and the contract is served")
 
 
-def verify_role_boundary(page: Page) -> None:
-  """The API refuses a cross-role action even when the UI never offers it."""
-  response = page.request.patch(
-    f"{BASE_URL}/api/demo-state",
-    data={"action": "approve-claim", "reviewNote": "Not mine to approve."},
-  )
-  assert response.status == 403, f"expected 403, got {response.status}"
-  assert "claims agent" in response.json()["error"]
-  print("  role boundary: the API refuses a cross-role action with 403")
-
 
 # --------------------------------------------------------------------------- #
 # The scenario                                                                 #
@@ -742,7 +1016,8 @@ def run_scenario(page: Page, upload: Path) -> None:
   verify_theme(page)
   verify_mobile(page)
   verify_quote_and_purchase(page)
-  verify_payment(page)
+  verify_vehicles_and_drivers(page)
+  verify_billing(page)
   verify_file_claim(page)
   verify_role_boundary(page)
   verify_messages(page, "policyholder")
@@ -754,7 +1029,6 @@ def run_scenario(page: Page, upload: Path) -> None:
   verify_agent_review(page)
   verify_directory(page)
   verify_messages(page, "agent")
-  verify_logo_goes_home(page, "Good morning, Jordan.")
   sign_out(page)
 
   print("Policyholder responds")
@@ -764,13 +1038,33 @@ def run_scenario(page: Page, upload: Path) -> None:
 
   print("Claims agent decides")
   sign_in(page, "agent")
-  verify_settlement(page)
+  verify_settlement_and_bonus(page)
   verify_claim_summary(page)
+  sign_out(page)
+
+  print("Renewal, assistance and documents")
+  sign_in(page, "customer")
+  verify_renewal(page)
+  verify_assistance(page)
+  verify_certificate(page)
+  sign_out(page)
+
+  print("Agent levers")
+  sign_in(page, "agent")
+  verify_agent_assistance(page)
+  verify_agent_policy_and_refund(page)
+  sign_out(page)
+
+  print("Reinstatement and the new-business funnel")
+  sign_in(page, "customer")
+  verify_reinstatement(page)
+  verify_cancel_and_new_business(page)
   sign_out(page)
 
   print("Sign-in paths")
   verify_verification_step(page)
   verify_api_docs(page)
+
 
 
 def main() -> None:

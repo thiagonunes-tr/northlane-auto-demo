@@ -67,26 +67,42 @@ outcomes are reachable without guessing:
 
 ## The demo story
 
-A policyholder already has an active policy on a 2019 Honda Civic. From there:
+Alex Carter already holds an active policy on a 2019 Honda Civic, with four
+claim-free years behind it. From there:
 
-1. **Get a quote** for a different coverage level. The price is a base rate plus
-   named surcharges, itemised on screen, and it does not touch the policy until
-   accepted. Accepting it reprices the policy and reissues the open invoice.
-2. **Update the vehicle or the driver.** Either change clears an open quote,
-   because that price was calculated against details no longer on file.
-3. **Pay the premium** with the demo card, or watch any other card be declined.
-4. **File a claim.** The single rule the whole demo turns on: an estimate of
-   **$2,000 or less is approved automatically**; anything higher starts as
-   *Pending review* and lands on a claims agent's desk.
-5. The **claims agent** starts the review and either approves it, rejects it, or
-   asks for more information — every decision requires a written note.
-6. If information was requested, the policyholder **attaches a document** and
-   sends the claim back. The file itself is never uploaded or stored; only its
-   name and size are recorded.
-7. The agent **settles** an approved claim. The payout is the estimate less the
-   policy deductible, floored at zero.
-8. Either side can **message** the other, and **generate a claim summary** as a
-   downloadable CSV.
+**Cover and price**
+1. **Get a quote** for a different coverage level, optional extras, or a
+   different deductible. The price is itemised line by line and does not touch
+   the policy until accepted.
+2. **Add or remove vehicles and drivers.** Each vehicle is rated separately; the
+   least experienced driver adds one surcharge for the whole policy. Any change
+   clears an open quote, because the price was for the old details.
+3. **Renew early** to bank another claim-free year — the no-claims bonus is 5% a
+   year up to 25%, and the renewal reprices with it.
+4. **Cancel**, and the next quote becomes *new business*: a new policy number,
+   and the bonus starts again from zero.
+
+**Claims**
+5. **File a claim**, optionally naming the other driver. The rule the demo turns
+   on: an estimate of **$2,000 or less is approved automatically**; anything
+   higher goes to a claims agent.
+6. The **agent** assigns a repair shop, schedules an inspection, records what it
+   found, and then approves, rejects, or asks for more information — every
+   decision in writing.
+7. **Settle** an approved claim. The payout is the estimate less the deductible,
+   and it **costs the whole no-claims bonus** — visible at the next renewal.
+
+**Money and service**
+8. **Pay a premium** with the demo card, save a card for next time, or switch
+   between monthly and annual billing. Invoices keep their history; an agent can
+   refund a paid one.
+9. **Miss a payment** and the agent can lapse the policy. Paying the arrears is
+   the only thing that reinstates it.
+10. **Call for roadside assistance** — if the add-on is on the cover. The agent
+    dispatches a provider and closes the job.
+11. **Download** a certificate of insurance as a PDF, or a claim summary as CSV,
+    both generated in the browser.
+12. **Message** the claims team either way, with per-role unread counts.
 
 Both roles share one environment, so a change made by one is visible to the other.
 

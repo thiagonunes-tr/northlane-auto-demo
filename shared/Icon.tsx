@@ -10,6 +10,7 @@ export type IconName =
   | "close"
   | "credit-card"
   | "download"
+  | "file-text"
   | "help-circle"
   | "home"
   | "id-card"
@@ -19,10 +20,14 @@ export type IconName =
   | "paperclip"
   | "plus"
   | "receipt"
+  | "refresh"
   | "search"
   | "shield-check"
   | "sun"
-  | "upload";
+  | "trash"
+  | "truck"
+  | "upload"
+  | "wrench";
 
 export function Icon({
   name,
@@ -63,6 +68,11 @@ export function Icon({
       <path d="m7 10 5 5 5-5" />
       <path d="M5 21h14" />
     </>,
+    "file-text": <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 13h6M9 17h4" />
+    </>,
     "help-circle": <>
       <circle cx="12" cy="12" r="9" />
       <path d="M9.7 9a2.4 2.4 0 1 1 3.5 2.1c-.8.4-1.2.9-1.2 1.9M12 17h.01" />
@@ -92,6 +102,12 @@ export function Icon({
       <path d="M5 3.5v17l2.3-1.5 2.4 1.5 2.3-1.5 2.4 1.5 2.3-1.5 2 1.3V3.5Z" />
       <path d="M8.5 8.5h7M8.5 12.5h7M8.5 16h4" />
     </>,
+    refresh: <>
+      <path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.5" />
+      <path d="M4 4v4.5h4.5" />
+      <path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.5" />
+      <path d="M20 20v-4.5h-4.5" />
+    </>,
     search: <>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-4-4" />
@@ -103,6 +119,21 @@ export function Icon({
     sun: <>
       <circle cx="12" cy="12" r="4" />
       <path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" />
+    </>,
+    trash: <>
+      <path d="M4 7h16" />
+      <path d="M10 4h4M9 7v12M15 7v12" />
+      <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
+    </>,
+    truck: <>
+      <path d="M2 7h11v10H2Z" />
+      <path d="M13 10h4.5l3.5 3.5V17h-8Z" />
+      <circle cx="6.5" cy="18.5" r="1.8" />
+      <circle cx="17" cy="18.5" r="1.8" />
+    </>,
+    wrench: <>
+      <path d="M15.5 3a5.5 5.5 0 0 0-5 7.7L3.6 17.6a2 2 0 0 0 2.8 2.8l6.9-6.9A5.5 5.5 0 1 0 15.5 3Z" />
+      <path d="M15.5 8.5h.01" />
     </>,
     upload: <>
       <path d="M12 20V8" />

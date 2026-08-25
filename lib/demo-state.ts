@@ -2,11 +2,11 @@
  * The whole business domain of the Northlane Auto Insurance demo, as one pure
  * state machine.
  *
- * Nothing in here touches the network, the database, or React. The Worker owns
- * persistence (lib/mfa-db.ts) and the UI owns presentation (shared/NorthlaneApp
- * .tsx); this module owns the answer to "is that transition legal, and what does
- * the state look like afterwards". That split is what lets the unit tests drive
- * every business rule without a running server.
+ * Nothing here touches the network, the database, or React. The Worker owns
+ * persistence (lib/mfa-db.ts) and the UI owns presentation
+ * (shared/NorthlaneApp.tsx); this module owns the answer to "is that transition
+ * legal, and what does the state look like afterwards". That split is what lets
+ * the unit tests drive every business rule without a running server.
  *
  * Every value here is fictional. No money moves and no policy exists.
  */
@@ -25,9 +25,12 @@ export type DemoActorRole = "customer" | "agent";
 export const DEMO_TODAY = "July 24, 2026";
 export const DEMO_NOW = "July 24, 2026 at 10:05 AM";
 export const DEMO_MESSAGE_NOW = "Jul 24 · Now";
+/** Where a renewal lands. One year on from the current term. */
+export const DEMO_NEXT_TERM_START = "February 1, 2027";
+export const DEMO_NEXT_TERM_END = "February 1, 2028";
 
 /* -------------------------------------------------------------------------- */
-/* Policy, vehicle, driver                                                     */
+/* Coverage, add-ons, deductible                                               */
 /* -------------------------------------------------------------------------- */
 
 export type CoverageTier = "Liability" | "Standard" | "Comprehensive";
@@ -37,10 +40,93 @@ export const COVERAGE_TIERS: CoverageTier[] = [
   "Comprehensive",
 ];
 
+/** Annual base rate per coverage tier, per vehicle, in whole dollars. */
+export const COVERAGE_BASE_PREMIUM: Record<CoverageTier, number> = {
+  Liability: 640,
+  Standard: 980,
+  Comprehensive: 1420,
+};
+
+/**
+ * Optional cover the customer adds on top of a tier.
+ *
+ * Priced as a flat annual amount each, because a demo audience has to be able
+ * to add one and see exactly what it cost.
+ */
+export type AddOnId = "courtesy-car" | "roadside" | "glass" | "third-party-plus";
+
+export type AddOn = {
+  id: AddOnId;
+  label: string;
+  description: string;
+  annualPremium: number;
+};
+
+export const ADD_ONS: AddOn[] = [
+  {
+    id: "courtesy-car",
+    label: "Courtesy car",
+    description: "A replacement car while yours is being repaired.",
+    annualPremium: 120,
+  },
+  {
+    id: "roadside",
+    label: "Roadside assistance",
+    description: "Towing, jump starts, flat tyres, lockouts and fuel delivery.",
+    annualPremium: 90,
+  },
+  {
+    id: "glass",
+    label: "Glass cover",
+    description: "Windscreen and window repair with no deductible.",
+    annualPremium: 60,
+  },
+  {
+    id: "third-party-plus",
+    label: "Third-party plus",
+    description: "Raises the limit on damage you cause to other people.",
+    annualPremium: 150,
+  },
+];
+
+export function isAddOnId(value: unknown): value is AddOnId {
+  return ADD_ONS.some(addOn => addOn.id === value);
+}
+
+export function addOnFor(id: AddOnId): AddOn {
+  const found = ADD_ONS.find(addOn => addOn.id === id);
+  if (!found) throw new Error(`Unknown add-on: ${id}`);
+  return found;
+}
+
+/**
+ * Deductibles the customer picks, and what each does to the premium.
+ *
+ * Carrying more of a claim yourself costs less up front. The numbers are
+ * arithmetic a demo audience can follow, not an actuarial table.
+ */
+export type DeductibleChoice = 250 | 500 | 750 | 1000;
+export const DEDUCTIBLE_CHOICES: DeductibleChoice[] = [250, 500, 750, 1000];
+export const DEDUCTIBLE_ADJUSTMENT: Record<DeductibleChoice, number> = {
+  250: 180,
+  500: 80,
+  750: 0,
+  1000: -90,
+};
+
+export function isDeductibleChoice(value: unknown): value is DeductibleChoice {
+  return DEDUCTIBLE_CHOICES.includes(Number(value) as DeductibleChoice);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Risk: vehicles and drivers                                                  */
+/* -------------------------------------------------------------------------- */
+
 export type VehicleUse = "Commute" | "Pleasure" | "Business";
 export const VEHICLE_USES: VehicleUse[] = ["Commute", "Pleasure", "Business"];
 
 export type Vehicle = {
+  id: string;
   year: string;
   make: string;
   model: string;
@@ -51,47 +137,110 @@ export type Vehicle = {
 };
 
 export type Driver = {
+  id: string;
   fullName: string;
   licenseNumber: string;
   licenseState: string;
   yearsLicensed: string;
+  /** The policyholder. Exactly one driver is primary and it cannot be removed. */
+  isPrimary: boolean;
   updatedAt: string;
 };
 
-/** A price the customer has been shown but has not accepted yet. */
-export type Quote = {
-  reference: string;
-  coverage: CoverageTier;
-  annualPremium: number;
-  monthlyPremium: number;
-  deductible: number;
-  /** Every line that moved the price, so the number is never unexplained. */
-  breakdown: { label: string; amount: number }[];
-  quotedAt: string;
-};
+/** A vehicle from this year or earlier counts as older. */
+export const OLDER_VEHICLE_CUTOFF_YEAR = 2016;
+export const OLDER_VEHICLE_SURCHARGE = 120;
+/** Fewer licensed years than this counts as a new driver. */
+export const NEW_DRIVER_YEARS = 3;
+export const NEW_DRIVER_SURCHARGE = 260;
+export const BUSINESS_USE_SURCHARGE = 180;
+
+/** A policy must always keep at least one of each. */
+export const MIN_VEHICLES = 1;
+export const MIN_DRIVERS = 1;
+export const MAX_VEHICLES = 4;
+export const MAX_DRIVERS = 4;
+
+/* -------------------------------------------------------------------------- */
+/* No-claims bonus                                                             */
+/* -------------------------------------------------------------------------- */
+
+/** Discount earned per claim-free year, and the ceiling it stops at. */
+export const NO_CLAIMS_DISCOUNT_PER_YEAR = 5;
+export const MAX_NO_CLAIMS_DISCOUNT = 25;
+
+export function noClaimsDiscountPercent(years: number): number {
+  if (!Number.isFinite(years) || years <= 0) return 0;
+  return Math.min(
+    Math.floor(years) * NO_CLAIMS_DISCOUNT_PER_YEAR,
+    MAX_NO_CLAIMS_DISCOUNT,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Policy                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export type PolicyStatus = "active" | "lapsed" | "cancelled";
+
+/** How the premium is billed. Changing it reissues the open invoice. */
+export type InstalmentPlan = "annual" | "monthly";
+export const INSTALMENT_PLANS: InstalmentPlan[] = ["annual", "monthly"];
 
 export type Policy = {
   number: string;
+  status: PolicyStatus;
   coverage: CoverageTier;
+  addOns: AddOnId[];
+  deductible: DeductibleChoice;
   annualPremium: number;
-  deductible: number;
+  instalmentPlan: InstalmentPlan;
   effectiveFrom: string;
   renewsOn: string;
+  /** Claim-free years carried into the next price. Reset when a claim settles. */
+  noClaimsYears: number;
   updatedAt: string;
+  endedOn: string | null;
+  endedReason: string | null;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Quotes                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether accepting this quote changes the policy in force or issues a new one.
+ *
+ * The two look identical on the pricing screen and behave completely
+ * differently on acceptance, so the kind is decided when the quote is created
+ * and carried with it rather than re-derived later from policy status that may
+ * have moved in between.
+ */
+export type QuoteKind = "new-business" | "endorsement";
+
+export type PriceLine = { label: string; amount: number };
+
+export type Quote = {
+  reference: string;
+  kind: QuoteKind;
+  coverage: CoverageTier;
+  addOns: AddOnId[];
+  deductible: DeductibleChoice;
+  annualPremium: number;
+  monthlyPremium: number;
+  /** Every line that moved the price, so the total is never unexplained. */
+  breakdown: PriceLine[];
+  quotedAt: string;
 };
 
 /* -------------------------------------------------------------------------- */
 /* Claims                                                                      */
 /* -------------------------------------------------------------------------- */
 
-/**
- * `approved` is reachable two ways: an agent decision, or the fast-track rule
- * below. `autoApproved` is what tells the two apart on screen, because a demo
- * audience that sees "Approved" with no agent action needs to be told why.
- */
 export type ClaimStatus =
   | "submitted"
   | "in-review"
+  | "inspection-scheduled"
   | "more-info-needed"
   | "approved"
   | "rejected"
@@ -113,6 +262,33 @@ export type ClaimDocument = {
   uploadedAt: string;
 };
 
+/** The other party in an incident, when there was one. */
+export type ThirdParty = {
+  name: string;
+  plate: string;
+  insurer: string;
+};
+
+export type InspectionOutcome = "damage-confirmed" | "damage-disputed";
+
+export type Inspection = {
+  shop: string;
+  scheduledFor: string;
+  outcome: InspectionOutcome | null;
+  notes: string | null;
+};
+
+export const REPAIR_SHOPS = [
+  "Northgate Auto Body",
+  "Lakeside Collision Centre",
+  "Prairie Street Garage",
+] as const;
+export type RepairShop = (typeof REPAIR_SHOPS)[number];
+
+export function isRepairShop(value: unknown): value is RepairShop {
+  return (REPAIR_SHOPS as readonly string[]).includes(String(value));
+}
+
 export type Claim = {
   reference: string;
   type: ClaimType;
@@ -125,22 +301,70 @@ export type Claim = {
   /** The agent's last written decision or information request. */
   reviewNote: string | null;
   documents: ClaimDocument[];
+  thirdParty: ThirdParty | null;
+  repairShop: RepairShop | null;
+  inspection: Inspection | null;
   settlementAmount: number | null;
+  /** The deductible applied, captured at settlement so history stays true. */
+  settledDeductible: number | null;
 };
 
 /** Claim statuses that still need somebody to act. */
 export const OPEN_CLAIM_STATUSES: ClaimStatus[] = [
   "submitted",
   "in-review",
+  "inspection-scheduled",
   "more-info-needed",
   "approved",
 ];
+
+/**
+ * "Insurance claim over $2,000 starts as Pending Review" is the rule the demo
+ * brief asks for. Anything at or below the limit is approved the moment it is
+ * filed, which gives the demo two claim paths that diverge on one number.
+ */
+export const FAST_TRACK_CLAIM_LIMIT = 2000;
+
+/** The largest estimate the form accepts, so a typo cannot produce nonsense. */
+export const MAX_CLAIM_ESTIMATE = 100000;
+
+/* -------------------------------------------------------------------------- */
+/* Roadside assistance                                                         */
+/* -------------------------------------------------------------------------- */
+
+export type AssistanceKind = "Tow" | "Battery" | "Flat tyre" | "Lockout" | "Fuel";
+export const ASSISTANCE_KINDS: AssistanceKind[] = [
+  "Tow",
+  "Battery",
+  "Flat tyre",
+  "Lockout",
+  "Fuel",
+];
+
+export type AssistanceStatus = "requested" | "dispatched" | "completed";
+
+export type AssistanceRequest = {
+  id: string;
+  kind: AssistanceKind;
+  location: string;
+  status: AssistanceStatus;
+  requestedAt: string;
+  /** Filled by the agent on dispatch. */
+  provider: string | null;
+  etaMinutes: number | null;
+};
+
+export const ASSISTANCE_PROVIDERS = [
+  "Northlane Recovery",
+  "Cedar Road Rescue",
+] as const;
 
 /* -------------------------------------------------------------------------- */
 /* Billing                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export type InvoiceStatus = "unpaid" | "paid";
+export type InvoiceStatus = "unpaid" | "paid" | "refunded";
+
 export type Invoice = {
   id: string;
   description: string;
@@ -150,7 +374,20 @@ export type Invoice = {
   /** "Visa ending 1111", or null while unpaid. */
   paidWith: string | null;
   paidAt: string | null;
+  refundedAt: string | null;
+  refundReason: string | null;
 };
+
+export type PaymentMethod = {
+  id: string;
+  label: string;
+  last4: string;
+  expiry: string;
+  nameOnCard: string;
+  addedAt: string;
+};
+
+export const MAX_PAYMENT_METHODS = 3;
 
 export type CardInput = {
   cardNumber: string;
@@ -158,6 +395,18 @@ export type CardInput = {
   cvv: string;
   nameOnCard: string;
 };
+
+/**
+ * The one card number this demo accepts, taken from the build rules. Every
+ * other well-formed card is declined, so both outcomes are reachable without
+ * anyone having to guess a magic value.
+ */
+export const DEMO_CARD_NUMBER = "4111111111111111";
+export const DEMO_CARD_EXPIRY = "12/30";
+export const DEMO_CARD_CVV = "123";
+
+export const CARD_DECLINED_MESSAGE =
+  "That card was declined. Use the demo card 4111 1111 1111 1111 with expiry 12/30 and CVV 123.";
 
 /* -------------------------------------------------------------------------- */
 /* Messages                                                                    */
@@ -179,43 +428,83 @@ export type MessageReadState = { customer: string | null; agent: string | null }
 
 export type DemoState = {
   policy: Policy;
-  vehicle: Vehicle;
-  driver: Driver;
+  vehicles: Vehicle[];
+  drivers: Driver[];
   /** A price on the table. Null once accepted or discarded. */
   quote: Quote | null;
-  /** Null until the customer files one. Kept after settlement as history. */
-  claim: Claim | null;
-  invoice: Invoice;
+  /** Newest first. At most one may be open at a time. */
+  claims: Claim[];
+  assistance: AssistanceRequest[];
+  /** Newest first. */
+  invoices: Invoice[];
+  paymentMethods: PaymentMethod[];
   messages: DemoMessage[];
   lastRead: MessageReadState;
 };
 
 export type DemoStateAction =
+  // policy and pricing
   | "request-quote"
   | "accept-quote"
   | "discard-quote"
+  | "renew-policy"
+  | "cancel-policy"
+  // declared risk
+  | "add-vehicle"
   | "update-vehicle"
+  | "remove-vehicle"
+  | "add-driver"
   | "update-driver"
+  | "remove-driver"
+  // claims, customer side
   | "file-claim"
   | "upload-claim-document"
   | "respond-to-claim-review"
+  // assistance
+  | "request-assistance"
+  // billing
   | "pay-invoice"
+  | "save-payment-method"
+  | "remove-payment-method"
+  | "change-instalment-plan"
+  // shared
   | "send-message"
   | "mark-messages-read"
+  // claims, agent side
   | "start-claim-review"
+  | "assign-repair-shop"
+  | "schedule-inspection"
+  | "record-inspection"
   | "request-claim-information"
   | "approve-claim"
   | "reject-claim"
-  | "settle-claim";
+  | "settle-claim"
+  // agent, other
+  | "dispatch-assistance"
+  | "complete-assistance"
+  | "refund-invoice"
+  | "lapse-policy";
 
 export type DemoActionInput = {
   coverage?: unknown;
+  addOns?: unknown;
+  deductible?: unknown;
   vehicle?: unknown;
+  vehicleId?: unknown;
   driver?: unknown;
+  driverId?: unknown;
   claim?: unknown;
   document?: unknown;
   reviewNote?: unknown;
+  repairShop?: unknown;
+  inspection?: unknown;
+  assistance?: unknown;
+  assistanceId?: unknown;
   card?: unknown;
+  paymentMethodId?: unknown;
+  invoiceId?: unknown;
+  instalmentPlan?: unknown;
+  reason?: unknown;
   messageBody?: unknown;
 };
 
@@ -224,144 +513,197 @@ export type DemoTransitionResult =
   | { ok: false; status: 400 | 403 | 409; error: string };
 
 /* -------------------------------------------------------------------------- */
-/* Business rules                                                              */
+/* Pricing                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/**
- * "Insurance claim over $2,000 starts as Pending Review" is the rule the demo
- * brief asks for. Anything at or below the limit is approved the moment it is
- * filed, which gives the demo two claim paths that diverge on one number.
- */
-export const FAST_TRACK_CLAIM_LIMIT = 2000;
-
-/** The largest estimate the form accepts, so a typo cannot produce nonsense. */
-export const MAX_CLAIM_ESTIMATE = 100000;
-
-/** Annual base rate per coverage tier, in whole dollars. */
-export const COVERAGE_BASE_PREMIUM: Record<CoverageTier, number> = {
-  Liability: 640,
-  Standard: 980,
-  Comprehensive: 1420,
+export type PricedQuote = {
+  annualPremium: number;
+  monthlyPremium: number;
+  breakdown: PriceLine[];
 };
 
-export const COVERAGE_DEDUCTIBLE: Record<CoverageTier, number> = {
-  Liability: 1000,
-  Standard: 750,
-  Comprehensive: 500,
-};
-
-export const OLDER_VEHICLE_SURCHARGE = 120;
-export const NEW_DRIVER_SURCHARGE = 260;
-export const BUSINESS_USE_SURCHARGE = 180;
-
-/** A vehicle from this year or earlier counts as older. */
-export const OLDER_VEHICLE_CUTOFF_YEAR = 2016;
-/** Fewer licensed years than this counts as a new driver. */
-export const NEW_DRIVER_YEARS = 3;
-
 /**
- * The one card number this demo accepts, taken from the build rules. Every
- * other well-formed card is declined, so both outcomes are reachable without
- * anyone having to guess a magic value.
- */
-export const DEMO_CARD_NUMBER = "4111111111111111";
-export const DEMO_CARD_EXPIRY = "12/30";
-export const DEMO_CARD_CVV = "123";
-
-export const CARD_DECLINED_MESSAGE =
-  "That card was declined. Use the demo card 4111 1111 1111 1111 with expiry 12/30 and CVV 123.";
-
-/**
- * Prices a coverage tier against the vehicle and driver currently on file.
+ * Prices a cover against the vehicles and drivers on the policy.
  *
- * Deliberately arithmetic a demo audience can follow in one reading: a base
- * rate plus at most three named surcharges. It is not risk scoring and is not
- * meant to resemble any.
+ * Deliberately arithmetic a demo audience can follow in one reading: each
+ * vehicle earns its own rated line, the least-experienced driver adds one
+ * surcharge for the policy, add-ons are flat, the deductible moves the price up
+ * or down, and the no-claims bonus comes off the subtotal. It is not risk
+ * scoring and is not meant to resemble any.
  */
-export function priceQuote(
-  coverage: CoverageTier,
-  vehicle: Vehicle,
-  driver: Driver,
-): { annualPremium: number; monthlyPremium: number; deductible: number; breakdown: { label: string; amount: number }[] } {
-  const breakdown: { label: string; amount: number }[] = [
-    { label: `${coverage} base rate`, amount: COVERAGE_BASE_PREMIUM[coverage] },
-  ];
+export function priceQuote(input: {
+  coverage: CoverageTier;
+  addOns: AddOnId[];
+  deductible: DeductibleChoice;
+  vehicles: Vehicle[];
+  drivers: Driver[];
+  noClaimsYears: number;
+}): PricedQuote {
+  const { coverage, addOns, deductible, vehicles, drivers, noClaimsYears } = input;
+  const breakdown: PriceLine[] = [];
 
-  const year = Number.parseInt(vehicle.year, 10);
-  if (Number.isFinite(year) && year <= OLDER_VEHICLE_CUTOFF_YEAR) {
+  for (const vehicle of vehicles) {
+    let amount = COVERAGE_BASE_PREMIUM[coverage];
+    const year = Number.parseInt(vehicle.year, 10);
+    if (Number.isFinite(year) && year <= OLDER_VEHICLE_CUTOFF_YEAR) {
+      amount += OLDER_VEHICLE_SURCHARGE;
+    }
+    if (vehicle.primaryUse === "Business") amount += BUSINESS_USE_SURCHARGE;
     breakdown.push({
-      label: `Vehicle ${OLDER_VEHICLE_CUTOFF_YEAR} or older`,
-      amount: OLDER_VEHICLE_SURCHARGE,
+      label: `${vehicle.year} ${vehicle.make} ${vehicle.model} · ${coverage}`,
+      amount,
     });
   }
 
-  const licensedYears = Number.parseInt(driver.yearsLicensed, 10);
-  if (Number.isFinite(licensedYears) && licensedYears < NEW_DRIVER_YEARS) {
+  // One surcharge for the policy, earned by whoever has driven the least.
+  const leastExperienced = drivers
+    .map(driver => Number.parseInt(driver.yearsLicensed, 10))
+    .filter(Number.isFinite)
+    .reduce((lowest, years) => Math.min(lowest, years), Number.POSITIVE_INFINITY);
+  if (Number.isFinite(leastExperienced) && leastExperienced < NEW_DRIVER_YEARS) {
     breakdown.push({
-      label: `Licensed under ${NEW_DRIVER_YEARS} years`,
+      label: `Driver licensed under ${NEW_DRIVER_YEARS} years`,
       amount: NEW_DRIVER_SURCHARGE,
     });
   }
 
-  if (vehicle.primaryUse === "Business") {
-    breakdown.push({ label: "Business use", amount: BUSINESS_USE_SURCHARGE });
+  for (const id of addOns) {
+    const addOn = addOnFor(id);
+    breakdown.push({ label: addOn.label, amount: addOn.annualPremium });
   }
 
-  const annualPremium = breakdown.reduce((total, line) => total + line.amount, 0);
+  const deductibleAdjustment = DEDUCTIBLE_ADJUSTMENT[deductible];
+  if (deductibleAdjustment !== 0) {
+    breakdown.push({
+      label: `${formatMoney(deductible)} deductible`,
+      amount: deductibleAdjustment,
+    });
+  }
+
+  const subtotal = breakdown.reduce((total, line) => total + line.amount, 0);
+  const discountPercent = noClaimsDiscountPercent(noClaimsYears);
+  if (discountPercent > 0) {
+    breakdown.push({
+      label: `No-claims bonus · ${discountPercent}%`,
+      amount: -Math.round((subtotal * discountPercent) / 100),
+    });
+  }
+
+  const annualPremium = Math.max(
+    0,
+    breakdown.reduce((total, line) => total + line.amount, 0),
+  );
   return {
     annualPremium,
     monthlyPremium: Math.round(annualPremium / 12),
-    deductible: COVERAGE_DEDUCTIBLE[coverage],
     breakdown,
   };
 }
 
-/** What a claim pays out: the estimate less the policy deductible, never below zero. */
+/** What a claim pays out: the estimate less the deductible, never below zero. */
 export function settlementFor(estimate: number, deductible: number): number {
   return Math.max(0, estimate - deductible);
+}
+
+/** What one instalment costs under the plan in force. */
+export function instalmentAmount(
+  annualPremium: number,
+  plan: InstalmentPlan,
+): number {
+  return plan === "annual" ? annualPremium : Math.round(annualPremium / 12);
 }
 
 /* -------------------------------------------------------------------------- */
 /* Seed data                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export const DEFAULT_VEHICLE: Vehicle = {
-  year: "2019",
-  make: "Honda",
-  model: "Civic LX",
-  vin: "1HGBH41JXMN109186",
-  plate: "8KTR429",
-  primaryUse: "Commute",
-  updatedAt: "Initial demo record",
-};
+export const DEFAULT_VEHICLES: Vehicle[] = [
+  {
+    id: "vehicle-1",
+    year: "2019",
+    make: "Honda",
+    model: "Civic LX",
+    vin: "1HGBH41JXMN109186",
+    plate: "8KTR429",
+    primaryUse: "Commute",
+    updatedAt: "Initial demo record",
+  },
+];
 
-export const DEFAULT_DRIVER: Driver = {
-  fullName: "Alex Carter",
-  licenseNumber: "C0482-9915-3320",
-  licenseState: "California",
-  yearsLicensed: "11",
-  updatedAt: "Initial demo record",
-};
+export const DEFAULT_DRIVERS: Driver[] = [
+  {
+    id: "driver-1",
+    fullName: "Alex Carter",
+    licenseNumber: "C0482-9915-3320",
+    licenseState: "California",
+    yearsLicensed: "11",
+    isPrimary: true,
+    updatedAt: "Initial demo record",
+  },
+];
 
 export const DEFAULT_POLICY: Policy = {
   number: "NL-2026-004821",
+  status: "active",
   coverage: "Standard",
-  annualPremium: 980,
+  addOns: [],
   deductible: 750,
+  annualPremium: 980,
+  instalmentPlan: "monthly",
   effectiveFrom: "February 1, 2026",
   renewsOn: "February 1, 2027",
+  noClaimsYears: 4,
   updatedAt: "Initial demo record",
+  endedOn: null,
+  endedReason: null,
 };
 
-export const DEFAULT_INVOICE: Invoice = {
-  id: "invoice-jul",
-  description: "Monthly premium · July 2026",
-  amount: 82,
-  dueOn: "August 5, 2026",
-  status: "unpaid",
-  paidWith: null,
-  paidAt: null,
-};
+/** One closed claim so the history list is not empty on first sight. */
+export const DEFAULT_CLAIMS: Claim[] = [
+  {
+    reference: "CLM-2025-5512",
+    type: "Glass",
+    incidentDate: "2025-11-03",
+    description: "Stone chip in the windscreen on the motorway.",
+    estimatedAmount: 480,
+    status: "settled",
+    filedAt: "November 3, 2025 at 4:12 PM",
+    autoApproved: true,
+    reviewNote:
+      "Approved automatically: estimates of $2,000 or less do not need an agent review.",
+    documents: [],
+    thirdParty: null,
+    repairShop: null,
+    inspection: null,
+    settlementAmount: 0,
+    settledDeductible: 750,
+  },
+];
+
+export const DEFAULT_INVOICES: Invoice[] = [
+  {
+    id: "invoice-jul",
+    description: "Monthly premium · July 2026",
+    amount: 82,
+    dueOn: "August 5, 2026",
+    status: "unpaid",
+    paidWith: null,
+    paidAt: null,
+    refundedAt: null,
+    refundReason: null,
+  },
+  {
+    id: "invoice-jun",
+    description: "Monthly premium · June 2026",
+    amount: 82,
+    dueOn: "July 5, 2026",
+    status: "paid",
+    paidWith: "Visa ending 1111",
+    paidAt: "July 2, 2026 at 9:41 AM",
+    refundedAt: null,
+    refundReason: null,
+  },
+];
 
 export const DEFAULT_MESSAGES: DemoMessage[] = [
   {
@@ -385,11 +727,13 @@ export const DEFAULT_LAST_READ: MessageReadState = {
 
 export const DEFAULT_DEMO_STATE: DemoState = {
   policy: DEFAULT_POLICY,
-  vehicle: DEFAULT_VEHICLE,
-  driver: DEFAULT_DRIVER,
+  vehicles: DEFAULT_VEHICLES,
+  drivers: DEFAULT_DRIVERS,
   quote: null,
-  claim: null,
-  invoice: DEFAULT_INVOICE,
+  claims: DEFAULT_CLAIMS,
+  assistance: [],
+  invoices: DEFAULT_INVOICES,
+  paymentMethods: [],
   messages: DEFAULT_MESSAGES,
   lastRead: DEFAULT_LAST_READ,
 };
@@ -398,41 +742,75 @@ export const DEMO_STATE_ACTIONS: DemoStateAction[] = [
   "request-quote",
   "accept-quote",
   "discard-quote",
+  "renew-policy",
+  "cancel-policy",
+  "add-vehicle",
   "update-vehicle",
+  "remove-vehicle",
+  "add-driver",
   "update-driver",
+  "remove-driver",
   "file-claim",
   "upload-claim-document",
   "respond-to-claim-review",
+  "request-assistance",
   "pay-invoice",
+  "save-payment-method",
+  "remove-payment-method",
+  "change-instalment-plan",
   "send-message",
   "mark-messages-read",
   "start-claim-review",
+  "assign-repair-shop",
+  "schedule-inspection",
+  "record-inspection",
   "request-claim-information",
   "approve-claim",
   "reject-claim",
   "settle-claim",
+  "dispatch-assistance",
+  "complete-assistance",
+  "refund-invoice",
+  "lapse-policy",
 ];
 
 const CUSTOMER_ACTIONS: DemoStateAction[] = [
   "request-quote",
   "accept-quote",
   "discard-quote",
+  "renew-policy",
+  "cancel-policy",
+  "add-vehicle",
   "update-vehicle",
+  "remove-vehicle",
+  "add-driver",
   "update-driver",
+  "remove-driver",
   "file-claim",
   "upload-claim-document",
   "respond-to-claim-review",
+  "request-assistance",
   "pay-invoice",
+  "save-payment-method",
+  "remove-payment-method",
+  "change-instalment-plan",
   "send-message",
   "mark-messages-read",
 ];
 
 const AGENT_ACTIONS: DemoStateAction[] = [
   "start-claim-review",
+  "assign-repair-shop",
+  "schedule-inspection",
+  "record-inspection",
   "request-claim-information",
   "approve-claim",
   "reject-claim",
   "settle-claim",
+  "dispatch-assistance",
+  "complete-assistance",
+  "refund-invoice",
+  "lapse-policy",
   "send-message",
   "mark-messages-read",
 ];
@@ -460,6 +838,14 @@ export function isClaimType(value: unknown): value is ClaimType {
   return CLAIM_TYPES.includes(String(value) as ClaimType);
 }
 
+export function isAssistanceKind(value: unknown): value is AssistanceKind {
+  return ASSISTANCE_KINDS.includes(String(value) as AssistanceKind);
+}
+
+export function isInstalmentPlan(value: unknown): value is InstalmentPlan {
+  return INSTALMENT_PLANS.includes(String(value) as InstalmentPlan);
+}
+
 function isRequiredText(value: unknown, maxLength: number): value is string {
   return (
     typeof value === "string" &&
@@ -468,10 +854,19 @@ function isRequiredText(value: unknown, maxLength: number): value is string {
   );
 }
 
+function isAmount(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isPositiveAmount(value: unknown): value is number {
+  return isAmount(value) && value >= 0;
+}
+
 export function isVehicle(value: unknown): value is Vehicle {
   if (!value || typeof value !== "object") return false;
   const vehicle = value as Partial<Vehicle>;
   return (
+    isRequiredText(vehicle.id, 60) &&
     isRequiredText(vehicle.year, 4) &&
     isRequiredText(vehicle.make, 40) &&
     isRequiredText(vehicle.model, 40) &&
@@ -486,12 +881,20 @@ export function isDriver(value: unknown): value is Driver {
   if (!value || typeof value !== "object") return false;
   const driver = value as Partial<Driver>;
   return (
+    isRequiredText(driver.id, 60) &&
     isRequiredText(driver.fullName, 80) &&
     isRequiredText(driver.licenseNumber, 30) &&
     isRequiredText(driver.licenseState, 40) &&
     isRequiredText(driver.yearsLicensed, 2) &&
+    typeof driver.isPrimary === "boolean" &&
     typeof driver.updatedAt === "string"
   );
+}
+
+function isPriceLine(value: unknown): value is PriceLine {
+  if (!value || typeof value !== "object") return false;
+  const line = value as Partial<PriceLine>;
+  return isRequiredText(line.label, 80) && isAmount(line.amount);
 }
 
 export function isQuote(value: unknown): value is Quote {
@@ -499,18 +902,15 @@ export function isQuote(value: unknown): value is Quote {
   const quote = value as Partial<Quote>;
   return (
     isRequiredText(quote.reference, 40) &&
+    ["new-business", "endorsement"].includes(String(quote.kind)) &&
     isCoverageTier(quote.coverage) &&
+    Array.isArray(quote.addOns) &&
+    quote.addOns.every(isAddOnId) &&
+    isDeductibleChoice(quote.deductible) &&
     isPositiveAmount(quote.annualPremium) &&
     isPositiveAmount(quote.monthlyPremium) &&
-    isPositiveAmount(quote.deductible) &&
     Array.isArray(quote.breakdown) &&
-    quote.breakdown.every(
-      line =>
-        !!line &&
-        typeof line === "object" &&
-        isRequiredText((line as { label?: unknown }).label, 60) &&
-        isPositiveAmount((line as { amount?: unknown }).amount),
-    ) &&
+    quote.breakdown.every(isPriceLine) &&
     typeof quote.quotedAt === "string"
   );
 }
@@ -520,12 +920,20 @@ export function isPolicy(value: unknown): value is Policy {
   const policy = value as Partial<Policy>;
   return (
     isRequiredText(policy.number, 40) &&
+    ["active", "lapsed", "cancelled"].includes(String(policy.status)) &&
     isCoverageTier(policy.coverage) &&
+    Array.isArray(policy.addOns) &&
+    policy.addOns.every(isAddOnId) &&
+    isDeductibleChoice(policy.deductible) &&
     isPositiveAmount(policy.annualPremium) &&
-    isPositiveAmount(policy.deductible) &&
+    isInstalmentPlan(policy.instalmentPlan) &&
     typeof policy.effectiveFrom === "string" &&
     typeof policy.renewsOn === "string" &&
-    typeof policy.updatedAt === "string"
+    typeof policy.noClaimsYears === "number" &&
+    policy.noClaimsYears >= 0 &&
+    typeof policy.updatedAt === "string" &&
+    (policy.endedOn === null || typeof policy.endedOn === "string") &&
+    (policy.endedReason === null || typeof policy.endedReason === "string")
   );
 }
 
@@ -537,6 +945,30 @@ export function isClaimDocument(value: unknown): value is ClaimDocument {
     isRequiredText(document.fileName, 160) &&
     typeof document.sizeLabel === "string" &&
     typeof document.uploadedAt === "string"
+  );
+}
+
+function isThirdParty(value: unknown): value is ThirdParty {
+  if (!value || typeof value !== "object") return false;
+  const party = value as Partial<ThirdParty>;
+  return (
+    isRequiredText(party.name, 80) &&
+    isRequiredText(party.plate, 12) &&
+    isRequiredText(party.insurer, 80)
+  );
+}
+
+function isInspection(value: unknown): value is Inspection {
+  if (!value || typeof value !== "object") return false;
+  const inspection = value as Partial<Inspection>;
+  return (
+    isRequiredText(inspection.shop, 80) &&
+    typeof inspection.scheduledFor === "string" &&
+    (inspection.outcome === null ||
+      ["damage-confirmed", "damage-disputed"].includes(
+        String(inspection.outcome),
+      )) &&
+    (inspection.notes === null || typeof inspection.notes === "string")
   );
 }
 
@@ -552,6 +984,7 @@ export function isClaim(value: unknown): value is Claim {
     [
       "submitted",
       "in-review",
+      "inspection-scheduled",
       "more-info-needed",
       "approved",
       "rejected",
@@ -562,10 +995,25 @@ export function isClaim(value: unknown): value is Claim {
     (claim.reviewNote === null || typeof claim.reviewNote === "string") &&
     Array.isArray(claim.documents) &&
     claim.documents.every(isClaimDocument) &&
-    (claim.settlementAmount === null ||
-      (typeof claim.settlementAmount === "number" &&
-        Number.isFinite(claim.settlementAmount) &&
-        claim.settlementAmount >= 0))
+    (claim.thirdParty === null || isThirdParty(claim.thirdParty)) &&
+    (claim.repairShop === null || isRepairShop(claim.repairShop)) &&
+    (claim.inspection === null || isInspection(claim.inspection)) &&
+    (claim.settlementAmount === null || isPositiveAmount(claim.settlementAmount)) &&
+    (claim.settledDeductible === null || isPositiveAmount(claim.settledDeductible))
+  );
+}
+
+export function isAssistanceRequest(value: unknown): value is AssistanceRequest {
+  if (!value || typeof value !== "object") return false;
+  const request = value as Partial<AssistanceRequest>;
+  return (
+    isRequiredText(request.id, 60) &&
+    isAssistanceKind(request.kind) &&
+    isRequiredText(request.location, 160) &&
+    ["requested", "dispatched", "completed"].includes(String(request.status)) &&
+    typeof request.requestedAt === "string" &&
+    (request.provider === null || typeof request.provider === "string") &&
+    (request.etaMinutes === null || typeof request.etaMinutes === "number")
   );
 }
 
@@ -577,9 +1025,24 @@ export function isInvoice(value: unknown): value is Invoice {
     isRequiredText(invoice.description, 200) &&
     isPositiveAmount(invoice.amount) &&
     typeof invoice.dueOn === "string" &&
-    ["unpaid", "paid"].includes(String(invoice.status)) &&
+    ["unpaid", "paid", "refunded"].includes(String(invoice.status)) &&
     (invoice.paidWith === null || typeof invoice.paidWith === "string") &&
-    (invoice.paidAt === null || typeof invoice.paidAt === "string")
+    (invoice.paidAt === null || typeof invoice.paidAt === "string") &&
+    (invoice.refundedAt === null || typeof invoice.refundedAt === "string") &&
+    (invoice.refundReason === null || typeof invoice.refundReason === "string")
+  );
+}
+
+export function isPaymentMethod(value: unknown): value is PaymentMethod {
+  if (!value || typeof value !== "object") return false;
+  const method = value as Partial<PaymentMethod>;
+  return (
+    isRequiredText(method.id, 60) &&
+    isRequiredText(method.label, 80) &&
+    isRequiredText(method.last4, 4) &&
+    isRequiredText(method.expiry, 5) &&
+    isRequiredText(method.nameOnCard, 80) &&
+    typeof method.addedAt === "string"
   );
 }
 
@@ -603,12 +1066,8 @@ export function isMessageReadState(value: unknown): value is MessageReadState {
   );
 }
 
-function isPositiveAmount(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
 /* -------------------------------------------------------------------------- */
-/* Derived counts                                                              */
+/* Derived reads                                                               */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -629,32 +1088,48 @@ export function countUnreadMessages(
     .filter(message => message.sender !== role).length;
 }
 
+/** The claim that is still moving, if any. At most one exists at a time. */
+export function openClaim(state: DemoState): Claim | null {
+  return state.claims.find(claim => OPEN_CLAIM_STATUSES.includes(claim.status)) ?? null;
+}
+
+export function hasOpenClaim(state: DemoState): boolean {
+  return openClaim(state) !== null;
+}
+
 /** Claims sitting on an agent's desk right now. */
 export function countClaimsAwaitingAgent(state: DemoState): number {
-  if (!state.claim) return 0;
-  return ["submitted", "in-review", "approved"].includes(state.claim.status)
+  const claim = openClaim(state);
+  if (!claim) return 0;
+  return ["submitted", "in-review", "inspection-scheduled", "approved"].includes(
+    claim.status,
+  )
     ? 1
     : 0;
 }
 
-/** Things the customer has to do before anything else can move. */
-export function countCustomerTodos(state: DemoState): number {
-  let total = 0;
-  if (state.invoice.status === "unpaid") total += 1;
-  if (state.quote !== null) total += 1;
-  if (state.claim?.status === "more-info-needed") total += 1;
-  return total;
+export function unpaidInvoices(state: DemoState): Invoice[] {
+  return state.invoices.filter(invoice => invoice.status === "unpaid");
 }
 
-/** True when there is a claim that has not reached a terminal status. */
-export function hasOpenClaim(state: DemoState): boolean {
-  return state.claim !== null && OPEN_CLAIM_STATUSES.includes(state.claim.status);
+export function openAssistance(state: DemoState): AssistanceRequest[] {
+  return state.assistance.filter(request => request.status !== "completed");
+}
+
+/** Things the customer has to do before anything else can move. */
+export function countCustomerTodos(state: DemoState): number {
+  let total = unpaidInvoices(state).length;
+  if (state.quote !== null) total += 1;
+  if (openClaim(state)?.status === "more-info-needed") total += 1;
+  if (state.policy.status === "lapsed") total += 1;
+  return total;
 }
 
 export function claimStatusLabel(status: ClaimStatus): string {
   return {
     submitted: "Pending review",
     "in-review": "In review",
+    "inspection-scheduled": "Inspection scheduled",
     "more-info-needed": "Needs more information",
     approved: "Approved",
     rejected: "Rejected",
@@ -662,16 +1137,35 @@ export function claimStatusLabel(status: ClaimStatus): string {
   }[status];
 }
 
-/** Whole dollars as "$1,420". Money is never a bare number on screen. */
+export function policyStatusLabel(status: PolicyStatus): string {
+  return { active: "Active", lapsed: "Lapsed", cancelled: "Cancelled" }[status];
+}
+
+export function assistanceStatusLabel(status: AssistanceStatus): string {
+  return { requested: "Requested", dispatched: "On the way", completed: "Completed" }[
+    status
+  ];
+}
+
+/** Whole dollars as "$1,420", negatives as "−$210". Money is never bare. */
 export function formatMoney(amount: number): string {
-  return `$${amount.toLocaleString("en-US")}`;
+  const magnitude = `$${Math.abs(amount).toLocaleString("en-US")}`;
+  return amount < 0 ? `−${magnitude}` : magnitude;
+}
+
+/** A policy can only be changed or claimed against while it is in force. */
+export function isInForce(state: DemoState): boolean {
+  return state.policy.status === "active";
 }
 
 /* -------------------------------------------------------------------------- */
 /* Input parsing                                                               */
 /* -------------------------------------------------------------------------- */
 
-function parseVehicle(value: unknown): Omit<Vehicle, "updatedAt"> | null {
+type VehicleInput = Omit<Vehicle, "id" | "updatedAt">;
+type DriverInput = Omit<Driver, "id" | "isPrimary" | "updatedAt">;
+
+function parseVehicle(value: unknown): VehicleInput | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Partial<Vehicle>;
   if (
@@ -695,7 +1189,7 @@ function parseVehicle(value: unknown): Omit<Vehicle, "updatedAt"> | null {
   };
 }
 
-function parseDriver(value: unknown): Omit<Driver, "updatedAt"> | null {
+function parseDriver(value: unknown): DriverInput | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Partial<Driver>;
   if (
@@ -720,6 +1214,7 @@ type ClaimInput = {
   incidentDate: string;
   description: string;
   estimatedAmount: number;
+  thirdParty: ThirdParty | null;
 };
 
 function parseClaim(value: unknown): ClaimInput | null {
@@ -729,6 +1224,7 @@ function parseClaim(value: unknown): ClaimInput | null {
     incidentDate?: unknown;
     description?: unknown;
     estimatedAmount?: unknown;
+    thirdParty?: unknown;
   };
   if (
     !isClaimType(input.type) ||
@@ -749,15 +1245,29 @@ function parseClaim(value: unknown): ClaimInput | null {
   ) {
     return null;
   }
+  // A third party is optional, but a partial one is a mistake worth catching:
+  // half an other-driver's details helps nobody.
+  let thirdParty: ThirdParty | null = null;
+  if (input.thirdParty !== undefined && input.thirdParty !== null) {
+    if (!isThirdParty(input.thirdParty)) return null;
+    thirdParty = {
+      name: input.thirdParty.name.trim(),
+      plate: input.thirdParty.plate.trim().toUpperCase(),
+      insurer: input.thirdParty.insurer.trim(),
+    };
+  }
   return {
     type: input.type,
     incidentDate: input.incidentDate.trim(),
     description: input.description.trim(),
     estimatedAmount: estimate,
+    thirdParty,
   };
 }
 
-function parseDocument(value: unknown): { fileName: string; sizeLabel: string } | null {
+function parseDocument(
+  value: unknown,
+): { fileName: string; sizeLabel: string } | null {
   if (!value || typeof value !== "object") return null;
   const input = value as { fileName?: unknown; sizeLabel?: unknown };
   if (!isRequiredText(input.fileName, 160)) return null;
@@ -769,13 +1279,33 @@ function parseDocument(value: unknown): { fileName: string; sizeLabel: string } 
   };
 }
 
+function parseAddOns(value: unknown): AddOnId[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  if (!value.every(isAddOnId)) return null;
+  // Deduplicated and put in a stable order so the price lines never depend on
+  // the order somebody happened to tick the boxes.
+  return ADD_ONS.map(addOn => addOn.id).filter(id => value.includes(id));
+}
+
+function parseAssistance(
+  value: unknown,
+): { kind: AssistanceKind; location: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const input = value as { kind?: unknown; location?: unknown };
+  if (!isAssistanceKind(input.kind) || !isRequiredText(input.location, 160)) {
+    return null;
+  }
+  return { kind: input.kind, location: input.location.trim() };
+}
+
 /**
  * Card outcomes are deterministic: the documented demo card is accepted and
  * every other well-formed card is declined. Malformed input is a 400 because
  * the form is wrong, not the card.
  */
-type CardVerdict =
-  | { ok: true; label: string }
+export type CardVerdict =
+  | { ok: true; label: string; last4: string; expiry: string; nameOnCard: string }
   | { ok: false; status: 400 | 409; error: string };
 
 export function verifyCard(value: unknown): CardVerdict {
@@ -803,11 +1333,82 @@ export function verifyCard(value: unknown): CardVerdict {
     };
   }
 
-  if (digits !== DEMO_CARD_NUMBER || expiry !== DEMO_CARD_EXPIRY || cvv !== DEMO_CARD_CVV) {
+  if (
+    digits !== DEMO_CARD_NUMBER ||
+    expiry !== DEMO_CARD_EXPIRY ||
+    cvv !== DEMO_CARD_CVV
+  ) {
     return { ok: false, status: 409, error: CARD_DECLINED_MESSAGE };
   }
 
-  return { ok: true, label: `Visa ending ${digits.slice(-4)}` };
+  const last4 = digits.slice(-4);
+  return {
+    ok: true,
+    label: `Visa ending ${last4}`,
+    last4,
+    expiry,
+    nameOnCard,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Transition helpers                                                          */
+/* -------------------------------------------------------------------------- */
+
+function refuse(
+  status: 400 | 403 | 409,
+  error: string,
+): { ok: false; status: 400 | 403 | 409; error: string } {
+  return { ok: false, status, error };
+}
+
+function accept(state: DemoState): { ok: true; state: DemoState } {
+  return { ok: true, state };
+}
+
+/** Replaces the open claim, leaving closed history untouched. */
+function withOpenClaim(state: DemoState, next: Claim): DemoState {
+  return {
+    ...state,
+    claims: state.claims.map(claim =>
+      claim.reference === next.reference ? next : claim,
+    ),
+  };
+}
+
+function nextId(prefix: string, existing: { id: string }[]): string {
+  let index = existing.length + 1;
+  const taken = new Set(existing.map(item => item.id));
+  while (taken.has(`${prefix}-${index}`)) index += 1;
+  return `${prefix}-${index}`;
+}
+
+/**
+ * Reissues the open invoice at the current price.
+ *
+ * Called wherever the premium moves — a coverage change, a renewal, an
+ * instalment-plan switch. A paid invoice describing a price that no longer
+ * exists would be a lie, so it is replaced and reopened rather than left alone.
+ */
+function reissueOpenInvoice(
+  invoices: Invoice[],
+  description: string,
+  amount: number,
+  dueOn: string,
+): Invoice[] {
+  const history = invoices.filter(invoice => invoice.status !== "unpaid");
+  const reissued: Invoice = {
+    id: `invoice-${history.length + 1}-revised`,
+    description,
+    amount,
+    dueOn,
+    status: "unpaid",
+    paidWith: null,
+    paidAt: null,
+    refundedAt: null,
+    refundReason: null,
+  };
+  return [reissued, ...history];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -828,337 +1429,713 @@ export function transitionDemoState(
   input: DemoActionInput = {},
 ): DemoTransitionResult {
   if (role === "customer" && !CUSTOMER_ACTIONS.includes(action)) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Only a claims agent can perform this action.",
-    };
+    return refuse(403, "Only a claims agent can perform this action.");
   }
   if (role === "agent" && !AGENT_ACTIONS.includes(action)) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Only the policyholder can perform this action.",
-    };
+    return refuse(403, "Only the policyholder can perform this action.");
   }
 
   switch (action) {
+    /* ---------------- pricing and the policy lifecycle ------------------- */
+
     case "request-quote": {
       if (!isCoverageTier(input.coverage)) {
-        return { ok: false, status: 400, error: "Choose a coverage level." };
+        return refuse(400, "Choose a coverage level.");
       }
-      if (input.coverage === state.policy.coverage) {
-        return {
-          ok: false,
-          status: 409,
-          error: `Your policy is already on ${input.coverage} coverage. Choose a different level to see a new price.`,
-        };
+      const addOns = parseAddOns(input.addOns);
+      if (!addOns) return refuse(400, "Choose from the listed optional covers.");
+      if (!isDeductibleChoice(input.deductible)) {
+        return refuse(400, "Choose one of the available deductibles.");
       }
-      const priced = priceQuote(input.coverage, state.vehicle, state.driver);
-      return {
-        ok: true,
-        state: {
-          ...state,
-          quote: {
-            reference: "QT-2026-3390",
-            coverage: input.coverage,
-            annualPremium: priced.annualPremium,
-            monthlyPremium: priced.monthlyPremium,
-            deductible: priced.deductible,
-            breakdown: priced.breakdown,
-            quotedAt: DEMO_NOW,
-          },
+      const deductible = Number(input.deductible) as DeductibleChoice;
+
+      // A policy that is not in force cannot be endorsed, so quoting one is a
+      // new-business quote instead. That is the whole cancel-then-rejoin funnel.
+      const kind: QuoteKind = isInForce(state) ? "endorsement" : "new-business";
+
+      if (kind === "endorsement") {
+        const unchanged =
+          input.coverage === state.policy.coverage &&
+          deductible === state.policy.deductible &&
+          addOns.length === state.policy.addOns.length &&
+          addOns.every(id => state.policy.addOns.includes(id));
+        if (unchanged) {
+          return refuse(
+            409,
+            "That is the cover you already have. Change the level, the deductible, or an optional cover to see a new price.",
+          );
+        }
+      }
+
+      // A new-business quote starts a fresh bonus record; an endorsement keeps
+      // the one the policy has earned.
+      const noClaimsYears = kind === "new-business" ? 0 : state.policy.noClaimsYears;
+      const priced = priceQuote({
+        coverage: input.coverage,
+        addOns,
+        deductible,
+        vehicles: state.vehicles,
+        drivers: state.drivers,
+        noClaimsYears,
+      });
+      return accept({
+        ...state,
+        quote: {
+          reference: kind === "new-business" ? "QT-2026-4102" : "QT-2026-3390",
+          kind,
+          coverage: input.coverage,
+          addOns,
+          deductible,
+          annualPremium: priced.annualPremium,
+          monthlyPremium: priced.monthlyPremium,
+          breakdown: priced.breakdown,
+          quotedAt: DEMO_NOW,
         },
-      };
+      });
     }
 
     case "accept-quote": {
       const { quote } = state;
       if (!quote) {
-        return {
-          ok: false,
-          status: 409,
-          error: "Request a quote before changing your coverage.",
-        };
+        return refuse(409, "Request a quote before changing your cover.");
       }
-      return {
-        ok: true,
-        state: {
-          ...state,
-          quote: null,
-          policy: {
-            ...state.policy,
-            coverage: quote.coverage,
-            annualPremium: quote.annualPremium,
-            deductible: quote.deductible,
-            updatedAt: DEMO_NOW,
-          },
-          // A coverage change reprices the premium, so the open invoice is
-          // reissued rather than left describing the old policy.
-          invoice: {
-            ...state.invoice,
-            id: "invoice-jul-revised",
-            description: `Monthly premium · ${quote.coverage} coverage`,
-            amount: quote.monthlyPremium,
-            status: "unpaid",
-            paidWith: null,
-            paidAt: null,
-          },
-        },
+      const newBusiness = quote.kind === "new-business";
+      const policy: Policy = {
+        ...state.policy,
+        number: newBusiness ? "NL-2026-005390" : state.policy.number,
+        status: "active",
+        coverage: quote.coverage,
+        addOns: quote.addOns,
+        deductible: quote.deductible,
+        annualPremium: quote.annualPremium,
+        effectiveFrom: newBusiness ? DEMO_TODAY : state.policy.effectiveFrom,
+        renewsOn: newBusiness ? DEMO_NEXT_TERM_END : state.policy.renewsOn,
+        noClaimsYears: newBusiness ? 0 : state.policy.noClaimsYears,
+        updatedAt: DEMO_NOW,
+        endedOn: null,
+        endedReason: null,
       };
+      return accept({
+        ...state,
+        quote: null,
+        policy,
+        invoices: reissueOpenInvoice(
+          state.invoices,
+          `${policy.instalmentPlan === "annual" ? "Annual" : "Monthly"} premium · ${quote.coverage} cover`,
+          instalmentAmount(quote.annualPremium, policy.instalmentPlan),
+          "August 5, 2026",
+        ),
+      });
     }
 
     case "discard-quote":
-      if (!state.quote) {
-        return { ok: false, status: 409, error: "There is no quote to discard." };
-      }
-      return { ok: true, state: { ...state, quote: null } };
+      if (!state.quote) return refuse(409, "There is no quote to discard.");
+      return accept({ ...state, quote: null });
 
-    case "update-vehicle": {
+    case "renew-policy": {
+      if (state.policy.status === "cancelled") {
+        return refuse(409, "A cancelled policy cannot be renewed. Get a new quote instead.");
+      }
+      if (state.policy.status === "lapsed") {
+        return refuse(409, "Settle the overdue premium to reinstate this policy before renewing it.");
+      }
+      // Renewal is where the bonus is actually felt: another claim-free year is
+      // added first, then the whole cover is repriced with it.
+      const noClaimsYears = state.policy.noClaimsYears + 1;
+      const priced = priceQuote({
+        coverage: state.policy.coverage,
+        addOns: state.policy.addOns,
+        deductible: state.policy.deductible,
+        vehicles: state.vehicles,
+        drivers: state.drivers,
+        noClaimsYears,
+      });
+      const policy: Policy = {
+        ...state.policy,
+        annualPremium: priced.annualPremium,
+        noClaimsYears,
+        effectiveFrom: DEMO_NEXT_TERM_START,
+        renewsOn: DEMO_NEXT_TERM_END,
+        updatedAt: DEMO_NOW,
+      };
+      return accept({
+        ...state,
+        policy,
+        quote: null,
+        invoices: reissueOpenInvoice(
+          state.invoices,
+          `${policy.instalmentPlan === "annual" ? "Annual" : "Monthly"} premium · renewal from ${DEMO_NEXT_TERM_START}`,
+          instalmentAmount(priced.annualPremium, policy.instalmentPlan),
+          "February 5, 2027",
+        ),
+      });
+    }
+
+    case "cancel-policy": {
+      if (!isRequiredText(input.reason, 200)) {
+        return refuse(400, "Tell us why you are cancelling, in up to 200 characters.");
+      }
+      if (state.policy.status === "cancelled") {
+        return refuse(409, "This policy is already cancelled.");
+      }
+      if (hasOpenClaim(state)) {
+        return refuse(
+          409,
+          "A claim is still open on this policy. It has to be closed before the policy can be cancelled.",
+        );
+      }
+      return accept({
+        ...state,
+        quote: null,
+        policy: {
+          ...state.policy,
+          status: "cancelled",
+          endedOn: DEMO_TODAY,
+          endedReason: input.reason.trim(),
+          updatedAt: DEMO_NOW,
+        },
+      });
+    }
+
+    case "lapse-policy": {
+      if (state.policy.status !== "active") {
+        return refuse(409, "Only a policy in force can be lapsed.");
+      }
+      if (unpaidInvoices(state).length === 0) {
+        return refuse(
+          409,
+          "Nothing is overdue on this policy, so it cannot be lapsed for non-payment.",
+        );
+      }
+      return accept({
+        ...state,
+        policy: {
+          ...state.policy,
+          status: "lapsed",
+          endedOn: DEMO_TODAY,
+          endedReason: "Premium not paid by the due date.",
+          updatedAt: DEMO_NOW,
+        },
+      });
+    }
+
+    /* ---------------- declared risk --------------------------------------- */
+
+    case "add-vehicle": {
+      if (!isInForce(state)) {
+        return refuse(409, "This policy is not in force, so its vehicles cannot be changed.");
+      }
+      if (state.vehicles.length >= MAX_VEHICLES) {
+        return refuse(409, `A demo policy carries at most ${MAX_VEHICLES} vehicles.`);
+      }
       const vehicle = parseVehicle(input.vehicle);
       if (!vehicle) {
-        return {
-          ok: false,
-          status: 400,
-          error:
-            "Complete every vehicle field. The year must be four digits and the use must be one of the listed options.",
-        };
+        return refuse(
+          400,
+          "Complete every vehicle field. The year must be four digits and the use must be one of the listed options.",
+        );
+      }
+      if (state.vehicles.some(existing => existing.vin === vehicle.vin)) {
+        return refuse(409, "That VIN is already on this policy.");
+      }
+      return accept({
+        ...state,
+        quote: null,
+        vehicles: [
+          ...state.vehicles,
+          { ...vehicle, id: nextId("vehicle", state.vehicles), updatedAt: DEMO_NOW },
+        ],
+      });
+    }
+
+    case "update-vehicle": {
+      if (!isInForce(state)) {
+        return refuse(409, "This policy is not in force, so its vehicles cannot be changed.");
+      }
+      const index = state.vehicles.findIndex(item => item.id === input.vehicleId);
+      if (index === -1) return refuse(400, "Choose one of the vehicles on this policy.");
+      const vehicle = parseVehicle(input.vehicle);
+      if (!vehicle) {
+        return refuse(
+          400,
+          "Complete every vehicle field. The year must be four digits and the use must be one of the listed options.",
+        );
+      }
+      if (
+        state.vehicles.some(
+          (existing, position) => position !== index && existing.vin === vehicle.vin,
+        )
+      ) {
+        return refuse(409, "That VIN is already on this policy.");
       }
       // A repriced vehicle invalidates an outstanding quote: the price on the
       // table was calculated against the car that is no longer on file.
-      return {
-        ok: true,
-        state: {
-          ...state,
-          vehicle: { ...vehicle, updatedAt: DEMO_NOW },
-          quote: null,
-        },
-      };
+      return accept({
+        ...state,
+        quote: null,
+        vehicles: state.vehicles.map((existing, position) =>
+          position === index
+            ? { ...vehicle, id: existing.id, updatedAt: DEMO_NOW }
+            : existing,
+        ),
+      });
+    }
+
+    case "remove-vehicle": {
+      if (!isInForce(state)) {
+        return refuse(409, "This policy is not in force, so its vehicles cannot be changed.");
+      }
+      if (!state.vehicles.some(item => item.id === input.vehicleId)) {
+        return refuse(400, "Choose one of the vehicles on this policy.");
+      }
+      if (state.vehicles.length <= MIN_VEHICLES) {
+        return refuse(409, "A policy has to cover at least one vehicle.");
+      }
+      return accept({
+        ...state,
+        quote: null,
+        vehicles: state.vehicles.filter(item => item.id !== input.vehicleId),
+      });
+    }
+
+    case "add-driver": {
+      if (!isInForce(state)) {
+        return refuse(409, "This policy is not in force, so its drivers cannot be changed.");
+      }
+      if (state.drivers.length >= MAX_DRIVERS) {
+        return refuse(409, `A demo policy names at most ${MAX_DRIVERS} drivers.`);
+      }
+      const driver = parseDriver(input.driver);
+      if (!driver) {
+        return refuse(400, "Complete every driver field. Years licensed must be a whole number.");
+      }
+      if (
+        state.drivers.some(
+          existing => existing.licenseNumber === driver.licenseNumber,
+        )
+      ) {
+        return refuse(409, "That licence number is already named on this policy.");
+      }
+      return accept({
+        ...state,
+        quote: null,
+        drivers: [
+          ...state.drivers,
+          {
+            ...driver,
+            id: nextId("driver", state.drivers),
+            isPrimary: false,
+            updatedAt: DEMO_NOW,
+          },
+        ],
+      });
     }
 
     case "update-driver": {
+      if (!isInForce(state)) {
+        return refuse(409, "This policy is not in force, so its drivers cannot be changed.");
+      }
+      const index = state.drivers.findIndex(item => item.id === input.driverId);
+      if (index === -1) return refuse(400, "Choose one of the drivers on this policy.");
       const driver = parseDriver(input.driver);
       if (!driver) {
-        return {
-          ok: false,
-          status: 400,
-          error:
-            "Complete every driver field. Years licensed must be a whole number.",
-        };
+        return refuse(400, "Complete every driver field. Years licensed must be a whole number.");
       }
-      return {
-        ok: true,
-        state: {
-          ...state,
-          driver: { ...driver, updatedAt: DEMO_NOW },
-          quote: null,
-        },
-      };
+      return accept({
+        ...state,
+        quote: null,
+        drivers: state.drivers.map((existing, position) =>
+          position === index
+            ? {
+                ...driver,
+                id: existing.id,
+                isPrimary: existing.isPrimary,
+                updatedAt: DEMO_NOW,
+              }
+            : existing,
+        ),
+      });
     }
 
-    case "file-claim": {
-      if (hasOpenClaim(state)) {
-        return {
-          ok: false,
-          status: 409,
-          error: "Your existing claim has to be closed before you file another one.",
-        };
+    case "remove-driver": {
+      if (!isInForce(state)) {
+        return refuse(409, "This policy is not in force, so its drivers cannot be changed.");
       }
+      const driver = state.drivers.find(item => item.id === input.driverId);
+      if (!driver) return refuse(400, "Choose one of the drivers on this policy.");
+      // The policyholder is not a named driver you can take off. Removing them
+      // would leave a policy belonging to nobody.
+      if (driver.isPrimary) {
+        return refuse(409, "The policyholder cannot be removed from their own policy.");
+      }
+      if (state.drivers.length <= MIN_DRIVERS) {
+        return refuse(409, "A policy has to name at least one driver.");
+      }
+      return accept({
+        ...state,
+        quote: null,
+        drivers: state.drivers.filter(item => item.id !== driver.id),
+      });
+    }
+
+    /* ---------------- claims, customer side ------------------------------- */
+
+    case "file-claim": {
       const claim = parseClaim(input.claim);
       if (!claim) {
-        return {
-          ok: false,
-          status: 400,
-          error: `Complete every claim field. The estimate must be a whole number of dollars up to ${formatMoney(MAX_CLAIM_ESTIMATE)}.`,
-        };
+        return refuse(
+          400,
+          `Complete every claim field. The estimate must be a whole number of dollars up to ${formatMoney(MAX_CLAIM_ESTIMATE)}, and any third party needs a name, a plate and an insurer.`,
+        );
+      }
+      if (!isInForce(state)) {
+        return refuse(409, "A claim can only be filed against a policy in force.");
+      }
+      if (hasOpenClaim(state)) {
+        return refuse(
+          409,
+          "Your existing claim has to be closed before you file another one.",
+        );
       }
       // The fast-track rule. At or below the limit the claim is approved on
       // arrival; above it, an agent has to look at it.
       const fastTracked = claim.estimatedAmount <= FAST_TRACK_CLAIM_LIMIT;
-      return {
-        ok: true,
-        state: {
-          ...state,
-          claim: {
-            reference: "CLM-2026-7714",
-            type: claim.type,
-            incidentDate: claim.incidentDate,
-            description: claim.description,
-            estimatedAmount: claim.estimatedAmount,
-            status: fastTracked ? "approved" : "submitted",
-            filedAt: DEMO_NOW,
-            autoApproved: fastTracked,
-            reviewNote: fastTracked
-              ? `Approved automatically: estimates of ${formatMoney(FAST_TRACK_CLAIM_LIMIT)} or less do not need an agent review.`
-              : null,
-            documents: [],
-            settlementAmount: null,
-          },
-        },
+      const filed: Claim = {
+        reference: `CLM-2026-${7714 + state.claims.length}`,
+        type: claim.type,
+        incidentDate: claim.incidentDate,
+        description: claim.description,
+        estimatedAmount: claim.estimatedAmount,
+        status: fastTracked ? "approved" : "submitted",
+        filedAt: DEMO_NOW,
+        autoApproved: fastTracked,
+        reviewNote: fastTracked
+          ? `Approved automatically: estimates of ${formatMoney(FAST_TRACK_CLAIM_LIMIT)} or less do not need an agent review.`
+          : null,
+        documents: [],
+        thirdParty: claim.thirdParty,
+        repairShop: null,
+        inspection: null,
+        settlementAmount: null,
+        settledDeductible: null,
       };
+      return accept({ ...state, claims: [filed, ...state.claims] });
     }
 
     case "upload-claim-document": {
-      const { claim } = state;
+      const claim = openClaim(state);
       if (!claim) {
-        return {
-          ok: false,
-          status: 409,
-          error: "File a claim before attaching documents to it.",
-        };
-      }
-      if (claim.status === "settled" || claim.status === "rejected") {
-        return {
-          ok: false,
-          status: 409,
-          error: "This claim is closed, so no more documents can be attached.",
-        };
+        return refuse(409, "File a claim before attaching documents to it.");
       }
       const document = parseDocument(input.document);
-      if (!document) {
-        return { ok: false, status: 400, error: "Choose a file to attach." };
-      }
-      return {
-        ok: true,
-        state: {
-          ...state,
-          claim: {
-            ...claim,
-            documents: [
-              ...claim.documents,
-              {
-                id: `document-${claim.documents.length + 1}`,
-                fileName: document.fileName,
-                sizeLabel: document.sizeLabel,
-                uploadedAt: DEMO_NOW,
-              },
-            ],
-          },
-        },
-      };
+      if (!document) return refuse(400, "Choose a file to attach.");
+      return accept(
+        withOpenClaim(state, {
+          ...claim,
+          documents: [
+            ...claim.documents,
+            {
+              id: `document-${claim.documents.length + 1}`,
+              fileName: document.fileName,
+              sizeLabel: document.sizeLabel,
+              uploadedAt: DEMO_NOW,
+            },
+          ],
+        }),
+      );
     }
 
     case "respond-to-claim-review": {
-      const { claim } = state;
+      const claim = openClaim(state);
       if (!claim || claim.status !== "more-info-needed") {
-        return {
-          ok: false,
-          status: 409,
-          error: "This claim is not waiting on information from you.",
-        };
+        return refuse(409, "This claim is not waiting on information from you.");
       }
       if (claim.documents.length === 0) {
-        return {
-          ok: false,
-          status: 409,
-          error: "Attach at least one document before sending the claim back for review.",
-        };
+        return refuse(
+          409,
+          "Attach at least one document before sending the claim back for review.",
+        );
       }
-      return {
-        ok: true,
-        state: { ...state, claim: { ...claim, status: "in-review" } },
-      };
+      return accept(withOpenClaim(state, { ...claim, status: "in-review" }));
     }
 
+    /* ---------------- roadside assistance --------------------------------- */
+
+    case "request-assistance": {
+      if (!isInForce(state)) {
+        return refuse(409, "Assistance is only available on a policy in force.");
+      }
+      if (!state.policy.addOns.includes("roadside")) {
+        return refuse(
+          409,
+          "Roadside assistance is not on this policy. Add it to your cover to request help.",
+        );
+      }
+      if (openAssistance(state).length > 0) {
+        return refuse(409, "An assistance request is already open.");
+      }
+      const request = parseAssistance(input.assistance);
+      if (!request) {
+        return refuse(400, "Choose the kind of help you need and say where you are.");
+      }
+      return accept({
+        ...state,
+        assistance: [
+          {
+            id: nextId("assistance", state.assistance),
+            kind: request.kind,
+            location: request.location,
+            status: "requested",
+            requestedAt: DEMO_NOW,
+            provider: null,
+            etaMinutes: null,
+          },
+          ...state.assistance,
+        ],
+      });
+    }
+
+    /* ---------------- billing --------------------------------------------- */
+
     case "pay-invoice": {
-      if (state.invoice.status === "paid") {
-        return {
-          ok: false,
-          status: 409,
-          error: "This invoice has already been settled.",
-        };
+      // Everything malformed is rejected before anything stateful is judged, so
+      // a 400 never depends on what the policy happens to look like. That is
+      // what makes "409 means the request was fine" a true statement.
+      let invoice: Invoice | undefined;
+      if (input.invoiceId !== undefined) {
+        invoice = state.invoices.find(item => item.id === input.invoiceId);
+        if (!invoice) return refuse(400, "Choose one of the invoices on this policy.");
+      }
+
+      let method: PaymentMethod | undefined;
+      let verdict: CardVerdict | undefined;
+      if (input.paymentMethodId !== undefined) {
+        method = state.paymentMethods.find(item => item.id === input.paymentMethodId);
+        if (!method) return refuse(400, "Choose one of your saved payment methods.");
+      } else {
+        verdict = verifyCard(input.card);
+        if (!verdict.ok && verdict.status === 400) {
+          return refuse(400, verdict.error);
+        }
+      }
+
+      if (!invoice) {
+        invoice = unpaidInvoices(state)[0];
+        if (!invoice) return refuse(409, "Nothing is outstanding on this policy.");
+      }
+      if (invoice.status !== "unpaid") {
+        return refuse(409, "This invoice has already been settled.");
+      }
+      // The decline lands last: a card is only judged once there is something
+      // for it to pay.
+      if (verdict && !verdict.ok) return refuse(verdict.status, verdict.error);
+
+      const label = method ? method.label : (verdict as { ok: true; label: string }).label;
+      const invoices = state.invoices.map(item =>
+        item.id === invoice.id
+          ? { ...item, status: "paid" as const, paidWith: label, paidAt: DEMO_NOW }
+          : item,
+      );
+      // Paying what was overdue brings a lapsed policy back into force. Nothing
+      // else does; that is what makes the lapse worth demonstrating.
+      const reinstated =
+        state.policy.status === "lapsed" &&
+        invoices.every(item => item.status !== "unpaid");
+      return accept({
+        ...state,
+        invoices,
+        policy: reinstated
+          ? {
+              ...state.policy,
+              status: "active",
+              endedOn: null,
+              endedReason: null,
+              updatedAt: DEMO_NOW,
+            }
+          : state.policy,
+      });
+    }
+
+    case "save-payment-method": {
+      if (state.paymentMethods.length >= MAX_PAYMENT_METHODS) {
+        return refuse(409, `A demo account keeps at most ${MAX_PAYMENT_METHODS} cards.`);
       }
       const verdict = verifyCard(input.card);
-      if (!verdict.ok) {
-        return { ok: false, status: verdict.status, error: verdict.error };
+      if (!verdict.ok) return refuse(verdict.status, verdict.error);
+      if (
+        state.paymentMethods.some(
+          method => method.last4 === verdict.last4 && method.expiry === verdict.expiry,
+        )
+      ) {
+        return refuse(409, "That card is already saved.");
       }
-      return {
-        ok: true,
-        state: {
-          ...state,
-          invoice: {
-            ...state.invoice,
-            status: "paid",
-            paidWith: verdict.label,
-            paidAt: DEMO_NOW,
+      return accept({
+        ...state,
+        paymentMethods: [
+          ...state.paymentMethods,
+          {
+            id: nextId("card", state.paymentMethods),
+            label: verdict.label,
+            last4: verdict.last4,
+            expiry: verdict.expiry,
+            nameOnCard: verdict.nameOnCard,
+            addedAt: DEMO_NOW,
           },
-        },
-      };
+        ],
+      });
     }
+
+    case "remove-payment-method": {
+      if (!state.paymentMethods.some(method => method.id === input.paymentMethodId)) {
+        return refuse(400, "Choose one of your saved payment methods.");
+      }
+      return accept({
+        ...state,
+        paymentMethods: state.paymentMethods.filter(
+          method => method.id !== input.paymentMethodId,
+        ),
+      });
+    }
+
+    case "change-instalment-plan": {
+      if (!isInstalmentPlan(input.instalmentPlan)) {
+        return refuse(400, "Choose either the annual or the monthly plan.");
+      }
+      if (input.instalmentPlan === state.policy.instalmentPlan) {
+        return refuse(409, "That is the plan you are already on.");
+      }
+      const plan = input.instalmentPlan;
+      const policy: Policy = { ...state.policy, instalmentPlan: plan, updatedAt: DEMO_NOW };
+      return accept({
+        ...state,
+        policy,
+        invoices: reissueOpenInvoice(
+          state.invoices,
+          `${plan === "annual" ? "Annual" : "Monthly"} premium · ${policy.coverage} cover`,
+          instalmentAmount(policy.annualPremium, plan),
+          "August 5, 2026",
+        ),
+      });
+    }
+
+    /* ---------------- shared ---------------------------------------------- */
 
     case "mark-messages-read": {
       const lastMessage = state.messages[state.messages.length - 1];
       if (!lastMessage || state.lastRead[role] === lastMessage.id) {
-        return { ok: true, state };
+        return accept(state);
       }
-      return {
-        ok: true,
-        state: {
-          ...state,
-          lastRead: { ...state.lastRead, [role]: lastMessage.id },
-        },
-      };
+      return accept({
+        ...state,
+        lastRead: { ...state.lastRead, [role]: lastMessage.id },
+      });
     }
 
     case "send-message": {
       if (!isRequiredText(input.messageBody, 500)) {
-        return {
-          ok: false,
-          status: 400,
-          error: "Enter a message with no more than 500 characters.",
-        };
+        return refuse(400, "Enter a message with no more than 500 characters.");
       }
-      return {
-        ok: true,
-        state: {
-          ...state,
-          messages: [
-            ...state.messages,
-            {
-              id: `message-${state.messages.length + 1}`,
-              sender: role,
-              body: input.messageBody.trim(),
-              sentAt: DEMO_MESSAGE_NOW,
-            },
-          ],
-        },
-      };
+      return accept({
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            id: `message-${state.messages.length + 1}`,
+            sender: role,
+            body: input.messageBody.trim(),
+            sentAt: DEMO_MESSAGE_NOW,
+          },
+        ],
+      });
     }
 
+    /* ---------------- claims, agent side ---------------------------------- */
+
     case "start-claim-review": {
-      const { claim } = state;
+      const claim = openClaim(state);
       if (!claim || claim.status !== "submitted") {
-        return {
-          ok: false,
-          status: 409,
-          error: "Only a claim pending review can be opened for review.",
-        };
+        return refuse(409, "Only a claim pending review can be opened for review.");
       }
-      return {
-        ok: true,
-        state: { ...state, claim: { ...claim, status: "in-review" } },
-      };
+      return accept(withOpenClaim(state, { ...claim, status: "in-review" }));
+    }
+
+    case "assign-repair-shop": {
+      const claim = openClaim(state);
+      if (!claim || claim.status !== "in-review") {
+        return refuse(409, "Only a claim in review can be sent to a repair shop.");
+      }
+      if (!isRepairShop(input.repairShop)) {
+        return refuse(400, "Choose one of the approved repair shops.");
+      }
+      return accept(withOpenClaim(state, { ...claim, repairShop: input.repairShop }));
+    }
+
+    case "schedule-inspection": {
+      const claim = openClaim(state);
+      if (!claim || claim.status !== "in-review") {
+        return refuse(409, "Only a claim in review can have an inspection scheduled.");
+      }
+      if (!claim.repairShop) {
+        return refuse(
+          409,
+          "Assign a repair shop before scheduling the inspection: that is where it happens.",
+        );
+      }
+      return accept(
+        withOpenClaim(state, {
+          ...claim,
+          status: "inspection-scheduled",
+          inspection: {
+            shop: claim.repairShop,
+            scheduledFor: "July 28, 2026 at 11:00 AM",
+            outcome: null,
+            notes: null,
+          },
+        }),
+      );
+    }
+
+    case "record-inspection": {
+      const claim = openClaim(state);
+      if (!claim || claim.status !== "inspection-scheduled" || !claim.inspection) {
+        return refuse(409, "No inspection is scheduled on this claim.");
+      }
+      const outcome = String(
+        (input.inspection as { outcome?: unknown } | undefined)?.outcome ?? "",
+      );
+      if (!["damage-confirmed", "damage-disputed"].includes(outcome)) {
+        return refuse(400, "Record the inspection as either confirmed or disputed.");
+      }
+      const notes = (input.inspection as { notes?: unknown } | undefined)?.notes;
+      if (!isRequiredText(notes, 400)) {
+        return refuse(400, "Write what the inspection found, in up to 400 characters.");
+      }
+      // The claim comes back to the agent's desk either way; the outcome is
+      // evidence for the decision, not the decision itself.
+      return accept(
+        withOpenClaim(state, {
+          ...claim,
+          status: "in-review",
+          inspection: {
+            ...claim.inspection,
+            outcome: outcome as InspectionOutcome,
+            notes: notes.trim(),
+          },
+        }),
+      );
     }
 
     case "request-claim-information":
     case "approve-claim":
     case "reject-claim": {
-      const { claim } = state;
-      if (!claim || claim.status !== "in-review") {
-        return {
-          ok: false,
-          status: 409,
-          error: "Only a claim in review can be decided.",
-        };
-      }
       // Every decision is written down. A rejection or an information request
       // with no reason is the one thing a policyholder cannot act on.
       if (!isRequiredText(input.reviewNote, 400)) {
-        return {
-          ok: false,
-          status: 400,
-          error: "Write a note of up to 400 characters explaining this decision.",
-        };
+        return refuse(400, "Write a note of up to 400 characters explaining this decision.");
+      }
+      const claim = openClaim(state);
+      if (!claim || claim.status !== "in-review") {
+        return refuse(409, "Only a claim in review can be decided.");
       }
       const reviewNote = input.reviewNote.trim();
       const status: ClaimStatus =
@@ -1167,35 +2144,89 @@ export function transitionDemoState(
           : action === "reject-claim"
             ? "rejected"
             : "more-info-needed";
-      return {
-        ok: true,
-        state: { ...state, claim: { ...claim, status, reviewNote } },
-      };
+      return accept(withOpenClaim(state, { ...claim, status, reviewNote }));
     }
 
     case "settle-claim": {
-      const { claim } = state;
+      const claim = openClaim(state);
       if (!claim || claim.status !== "approved") {
-        return {
-          ok: false,
-          status: 409,
-          error: "Only an approved claim can be settled.",
-        };
+        return refuse(409, "Only an approved claim can be settled.");
       }
-      return {
-        ok: true,
-        state: {
-          ...state,
-          claim: {
-            ...claim,
-            status: "settled",
-            settlementAmount: settlementFor(
-              claim.estimatedAmount,
-              state.policy.deductible,
-            ),
-          },
+      // Glass cover pays the glass claim with no deductible at all. It is the
+      // one place an add-on changes what a claim is worth, which is what makes
+      // buying it worth demonstrating.
+      const glassCovered =
+        claim.type === "Glass" && state.policy.addOns.includes("glass");
+      const deductible = glassCovered ? 0 : state.policy.deductible;
+      return accept({
+        ...withOpenClaim(state, {
+          ...claim,
+          status: "settled",
+          settlementAmount: settlementFor(claim.estimatedAmount, deductible),
+          settledDeductible: deductible,
+        }),
+        // Settling a claim is what costs the bonus, and it costs all of it.
+        policy: {
+          ...state.policy,
+          noClaimsYears: 0,
+          updatedAt: DEMO_NOW,
         },
-      };
+      });
+    }
+
+    /* ---------------- agent, other ---------------------------------------- */
+
+    case "dispatch-assistance": {
+      const request = openAssistance(state).find(item => item.status === "requested");
+      if (!request) return refuse(409, "No assistance request is waiting to be dispatched.");
+      return accept({
+        ...state,
+        assistance: state.assistance.map(item =>
+          item.id === request.id
+            ? {
+                ...item,
+                status: "dispatched" as const,
+                provider: ASSISTANCE_PROVIDERS[0],
+                etaMinutes: 35,
+              }
+            : item,
+        ),
+      });
+    }
+
+    case "complete-assistance": {
+      const request = state.assistance.find(item => item.status === "dispatched");
+      if (!request) return refuse(409, "No assistance request is out for completion.");
+      return accept({
+        ...state,
+        assistance: state.assistance.map(item =>
+          item.id === request.id ? { ...item, status: "completed" as const } : item,
+        ),
+      });
+    }
+
+    case "refund-invoice": {
+      const invoice = state.invoices.find(item => item.id === input.invoiceId);
+      if (!invoice) return refuse(400, "Choose one of the invoices on this policy.");
+      if (invoice.status !== "paid") {
+        return refuse(409, "Only a paid invoice can be refunded.");
+      }
+      if (!isRequiredText(input.reason, 200)) {
+        return refuse(400, "Write why this is being refunded, in up to 200 characters.");
+      }
+      return accept({
+        ...state,
+        invoices: state.invoices.map(item =>
+          item.id === invoice.id
+            ? {
+                ...item,
+                status: "refunded" as const,
+                refundedAt: DEMO_NOW,
+                refundReason: (input.reason as string).trim(),
+              }
+            : item,
+        ),
+      });
     }
   }
 }

@@ -52,60 +52,83 @@ Three properties hold and are asserted:
 
 ```ts
 type DemoState = {
-  policy: Policy;          // always present; the seed policy is already active
-  vehicle: Vehicle;
-  driver: Driver;
-  quote: Quote | null;     // a price on the table, not yet accepted
-  claim: Claim | null;     // null until filed; kept after closing, as history
-  invoice: Invoice;
+  policy: Policy;                  // always present; status active | lapsed | cancelled
+  vehicles: Vehicle[];             // 1..4, each rated separately
+  drivers: Driver[];               // 1..4, exactly one isPrimary
+  quote: Quote | null;             // endorsement or new-business
+  claims: Claim[];                 // newest first; at most one open
+  assistance: AssistanceRequest[]; // roadside, newest first
+  invoices: Invoice[];             // newest first; unpaid | paid | refunded
+  paymentMethods: PaymentMethod[]; // 0..3 saved cards, number never stored
   messages: DemoMessage[];
   lastRead: MessageReadState;
 };
 ```
 
 There is no redundant status field. Whether a quote is outstanding is
-`quote !== null`; whether a claim is open is `OPEN_CLAIM_STATUSES.includes(...)`.
-Storing a derivable status alongside the thing it describes is how the two drift
-apart, which is a defect the sibling project had to migrate its way out of.
+`quote !== null`; whether a claim is open is `openClaim(state) !== null`. Storing
+a derivable status alongside the thing it describes is how the two drift apart.
 
 ### Claim lifecycle
 
 ```
-                        ┌──────────── estimate ≤ $2,000 ────────────┐
-                        │                                            ▼
-  (none) ── file-claim ─┤                                        approved ── settle-claim ──▶ settled
-                        │                                            ▲
-                        └── estimate > $2,000 ──▶ submitted          │
-                                                      │              │
-                                          start-claim-review         │
-                                                      ▼              │
-                                                  in-review ─── approve-claim
-                                                   │     │
-                                request-claim-information reject-claim
-                                                   ▼            ▼
-                                          more-info-needed   rejected
-                                                   │
-                     upload-claim-document, then respond-to-claim-review
-                                                   │
-                                                   └──▶ in-review
+                        ┌──────── estimate ≤ $2,000 ────────┐
+                        │                                    ▼
+  (none) ── file-claim ─┤                                approved ── settle-claim ──▶ settled
+                        │                                    ▲
+                        └── > $2,000 ──▶ submitted           │
+                                             │               │
+                                 start-claim-review          │
+                                             ▼               │
+                        ┌──────────────  in-review  ─── approve-claim
+                        │                 │  │  ▲
+        assign-repair-shop                │  │  │
+                        │   request-claim-info │  record-inspection
+        schedule-inspection                │   │        ▲
+                        ▼                 ▼   │  schedule-inspection
+              inspection-scheduled  more-info-needed
+                                             │
+                    upload-claim-document, then respond-to-claim-review
 ```
 
-`settled` and `rejected` are terminal, and both free the policyholder to file
-again. `autoApproved` distinguishes the two ways `approved` is reached, because
-a demo audience seeing "Approved" with no agent action needs to be told why.
+`settled` and `rejected` are terminal, stay in `claims` as history, and both
+free the policyholder to file again. `autoApproved` distinguishes the two ways
+`approved` is reached, because a demo audience seeing "Approved" with no agent
+action needs to be told why.
 
 ### Rules worth knowing before you change them
 
-- **Settlement uses the deductible in force at settlement time**, not at filing
-  time. Change coverage mid-claim and the payout changes. This is tested.
-- **Accepting a quote reissues the invoice**, clearing a previous payment. The
-  amount changed, so a paid invoice describing the old price would be a lie.
-- **Changing the vehicle or the driver clears an open quote.** The price was
+- **Settlement uses the deductible in force at settlement time**, and records it
+  on the claim as `settledDeductible` so history survives a later change.
+- **Glass cover waives the deductible on a glass claim.** The one place an
+  add-on changes what a claim is worth, which is what makes buying it
+  demonstrable.
+- **Settling a claim resets `noClaimsYears` to zero**, and `renew-policy` adds
+  one and reprices. That pair is the most valuable cross-flow in the app: a
+  claim visibly costs money at the next renewal.
+- **Accepting a quote, renewing, and changing the instalment plan all reissue
+  the open invoice.** A paid invoice describing a price that no longer exists
+  would be a lie, so it is replaced and reopened.
+- **Any change to a vehicle or a driver clears an open quote.** The price was
   calculated against details no longer on file.
-- **`respond-to-claim-review` requires at least one document.** A round trip
-  that tells the agent nothing new is not a round trip.
+- **A policy not in force accepts no risk change and no new claim.** Quoting one
+  produces a *new-business* quote instead, which is the whole cancel-then-rejoin
+  funnel.
+- **Paying every outstanding invoice reinstates a lapsed policy**, and nothing
+  else does.
+- **`respond-to-claim-review` requires at least one document**, and an
+  inspection requires a repair shop first: that is where it happens.
 - **Every agent decision requires a note.** A rejection with no reason is the
   one thing a policyholder cannot act on.
+
+### Validation ordering
+
+Request first, then state. Everything malformed is rejected before anything
+stateful is judged, so a `400` never depends on what the policy looks like. That
+is what makes the documented meaning of `409` — "the request was fine, the state
+was not ready" — a true statement rather than a hopeful one. An earlier version
+mixed the two orders per action and produced a `400` for a well-formed payment
+against a policy with nothing due.
 
 ## 4. Authentication
 

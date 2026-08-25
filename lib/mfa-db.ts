@@ -1,23 +1,26 @@
 import { env } from "cloudflare:workers";
 import {
+  DEFAULT_CLAIMS,
   DEFAULT_DEMO_STATE,
-  DEFAULT_DRIVER,
-  DEFAULT_INVOICE,
+  DEFAULT_DRIVERS,
+  DEFAULT_INVOICES,
   DEFAULT_LAST_READ,
   DEFAULT_MESSAGES,
   DEFAULT_POLICY,
-  DEFAULT_VEHICLE,
+  DEFAULT_VEHICLES,
   DemoActionInput,
   DemoActorRole,
   DemoState,
   DemoStateAction,
   DemoTransitionResult,
   MessageReadState,
+  isAssistanceRequest,
   isClaim,
   isDemoMessage,
   isDriver,
   isInvoice,
   isMessageReadState,
+  isPaymentMethod,
   isPolicy,
   isQuote,
   isVehicle,
@@ -26,12 +29,14 @@ import {
 
 export {
   DEFAULT_DEMO_STATE,
+  type AssistanceRequest,
   type Claim,
   type DemoMessage,
   type DemoState,
   type DemoStateAction,
   type Driver,
   type Invoice,
+  type PaymentMethod,
   type MessageReadState,
   type Policy,
   type Quote,
@@ -246,13 +251,48 @@ export async function getDemoState(): Promise<DemoState> {
           : null,
     };
 
+    // Each list falls back whole rather than per entry: a partially valid list
+    // leaves the UI reasoning about entries the guards already rejected. The
+    // two that must never be empty fall back when they are, because a policy
+    // with no vehicle or no driver cannot be priced at all.
+    const vehicles =
+      Array.isArray(state.vehicles) &&
+      state.vehicles.length > 0 &&
+      state.vehicles.every(isVehicle)
+        ? state.vehicles
+        : DEFAULT_VEHICLES;
+    const drivers =
+      Array.isArray(state.drivers) &&
+      state.drivers.length > 0 &&
+      state.drivers.every(isDriver) &&
+      state.drivers.some(driver => driver.isPrimary)
+        ? state.drivers
+        : DEFAULT_DRIVERS;
+
     return {
       policy: isPolicy(state.policy) ? state.policy : DEFAULT_POLICY,
-      vehicle: isVehicle(state.vehicle) ? state.vehicle : DEFAULT_VEHICLE,
-      driver: isDriver(state.driver) ? state.driver : DEFAULT_DRIVER,
+      vehicles,
+      drivers,
       quote: isQuote(state.quote) ? state.quote : null,
-      claim: isClaim(state.claim) ? state.claim : null,
-      invoice: isInvoice(state.invoice) ? state.invoice : DEFAULT_INVOICE,
+      claims:
+        Array.isArray(state.claims) && state.claims.every(isClaim)
+          ? state.claims
+          : DEFAULT_CLAIMS,
+      assistance:
+        Array.isArray(state.assistance) && state.assistance.every(isAssistanceRequest)
+          ? state.assistance
+          : [],
+      invoices:
+        Array.isArray(state.invoices) &&
+        state.invoices.length > 0 &&
+        state.invoices.every(isInvoice)
+          ? state.invoices
+          : DEFAULT_INVOICES,
+      paymentMethods:
+        Array.isArray(state.paymentMethods) &&
+        state.paymentMethods.every(isPaymentMethod)
+          ? state.paymentMethods
+          : [],
       messages,
       lastRead,
     };
@@ -311,12 +351,14 @@ export async function resetDemoState(): Promise<DemoState> {
 function freshDemoState(): DemoState {
   return {
     ...DEFAULT_DEMO_STATE,
-    policy: { ...DEFAULT_POLICY },
-    vehicle: { ...DEFAULT_VEHICLE },
-    driver: { ...DEFAULT_DRIVER },
+    policy: { ...DEFAULT_POLICY, addOns: [...DEFAULT_POLICY.addOns] },
+    vehicles: DEFAULT_VEHICLES.map(vehicle => ({ ...vehicle })),
+    drivers: DEFAULT_DRIVERS.map(driver => ({ ...driver })),
     quote: null,
-    claim: null,
-    invoice: { ...DEFAULT_INVOICE },
+    claims: DEFAULT_CLAIMS.map(claim => ({ ...claim, documents: [...claim.documents] })),
+    assistance: [],
+    invoices: DEFAULT_INVOICES.map(invoice => ({ ...invoice })),
+    paymentMethods: [],
     messages: DEFAULT_MESSAGES.map(message => ({ ...message })),
     lastRead: { ...DEFAULT_LAST_READ },
   };

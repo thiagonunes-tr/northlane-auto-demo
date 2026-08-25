@@ -29,12 +29,24 @@ export async function PATCH(request: NextRequest) {
   let body: {
     action?: unknown;
     coverage?: unknown;
+    addOns?: unknown;
+    deductible?: unknown;
     vehicle?: unknown;
+    vehicleId?: unknown;
     driver?: unknown;
+    driverId?: unknown;
     claim?: unknown;
     document?: unknown;
     reviewNote?: unknown;
+    repairShop?: unknown;
+    inspection?: unknown;
+    assistance?: unknown;
+    assistanceId?: unknown;
     card?: unknown;
+    paymentMethodId?: unknown;
+    invoiceId?: unknown;
+    instalmentPlan?: unknown;
+    reason?: unknown;
     messageBody?: unknown;
   };
   try {
@@ -55,12 +67,24 @@ export async function PATCH(request: NextRequest) {
 
   const result = await applyDemoStateAction(body.action, session.role, {
     coverage: body.coverage,
+    addOns: body.addOns,
+    deductible: body.deductible,
     vehicle: body.vehicle,
+    vehicleId: body.vehicleId,
     driver: body.driver,
+    driverId: body.driverId,
     claim: body.claim,
     document: body.document,
     reviewNote: body.reviewNote,
+    repairShop: body.repairShop,
+    inspection: body.inspection,
+    assistance: body.assistance,
+    assistanceId: body.assistanceId,
     card: body.card,
+    paymentMethodId: body.paymentMethodId,
+    invoiceId: body.invoiceId,
+    instalmentPlan: body.instalmentPlan,
+    reason: body.reason,
     messageBody: body.messageBody,
   });
   if (!result.ok) {

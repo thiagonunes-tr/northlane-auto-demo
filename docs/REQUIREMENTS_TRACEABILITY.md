@@ -155,22 +155,36 @@ input, so the contract is no less discoverable.
 Explained in §4. It closes the loop the brief's *Approve/reject claim* leaves
 open, and it gives the demo a second piece of visible arithmetic.
 
-## 8. Gaps and recommended follow-up
+## 8. Beyond the brief
 
-Nothing in the brief is unimplemented. The following are limitations of the
-current model rather than missing requirements, and each is recorded in the
-Developer Handoff:
+Nothing the brief asks for is unimplemented. A later round added twelve
+capabilities a real car insurer has and the brief does not mention, all
+**intentional extensions**:
 
-1. **One claim at a time.** `claim` is a single nullable value. A claim history
-   would need an array and a selected-claim concept. Worth doing only if a demo
-   scenario needs two open claims.
-2. **A constant claim reference.** Every claim is `CLM-2026-7714`. Deterministic
-   by design, but it cannot distinguish two claims across a reset.
-3. **No test isolation.** One shared row, by design. Documented in the QA
-   Automation guide with the reset-between-scenarios workaround.
-4. **Not deployed.** The application builds and tests green; the Cloudflare
-   Worker, D1 database and Vercel project have not been created. The deploy job
-   is gated behind a repository variable until they are.
+| Area | Added |
+| --- | --- |
+| Funnel | New-business quote and purchase, renewal, cancellation, lapse and reinstatement |
+| Product | Four optional covers, a customer-chosen deductible, a no-claims bonus that a settled claim resets |
+| Risk | Multiple vehicles and additional named drivers, each priced |
+| Claims | Claim history, third-party details, repair-shop assignment, inspection scheduling and outcome |
+| Service | Roadside assistance, dispatched and closed by the agent |
+| Billing | Invoice history, monthly or annual instalments, saved cards, agent refunds |
+| Documents | A certificate of insurance as a generated PDF |
+
+These go beyond the brief's *Scope Control Rule*, which asks for the smallest
+believable version. They were added at explicit request, with that trade-off
+stated: more surface to maintain, and more that can fail during a live demo. The
+core brief requirements remain separable from them.
+
+Remaining limitations, all recorded in the Developer Handoff:
+
+1. **One open claim at a time**, by design. History is kept, but two
+   simultaneous claims are not modelled.
+2. **Claim references are derived from the claim count**, so they are
+   predictable but not unique across a reset.
+3. **No test isolation.** One shared row, by design.
+4. **Renewal has no calendar.** The clock is fixed, so renewal is an explicit
+   action rather than something that happens on a date.
 
 ## 9. Conclusion
 
