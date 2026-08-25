@@ -204,11 +204,8 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .account-tabs button.active { background: var(--surface); color: var(--brand-dark); box-shadow: var(--shadow-tab); }
 .auth-form { display: grid; gap: var(--space-4); }
 .auth-form label { color: var(--ink-soft); font-size: var(--text-xs); font-weight: 700; }
-/* Text fields only. A checkbox matched this too, and `min-height` beats the
-   `height` a checkbox rule sets, so the box rendered 48px tall and sat well
-   below the label beside it. Same trap the modal's radio exclusion avoids. */
-.auth-form input:not([type="checkbox"]) { display: block; width: 100%; min-height: var(--space-7); margin-top: var(--space-2); border: var(--border) solid var(--line-strong); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--surface); color: var(--ink); transition: border-color .18s,box-shadow .18s; }
-.auth-form input:not([type="checkbox"]):focus-visible { border-color: var(--brand); box-shadow: var(--focus-ring); }
+.auth-form input { display: block; width: 100%; min-height: var(--space-7); margin-top: var(--space-2); border: var(--border) solid var(--line-strong); border-radius: var(--radius-md); padding: 0 var(--space-3); background: var(--surface); color: var(--ink); transition: border-color .18s,box-shadow .18s; }
+.auth-form input:focus-visible { border-color: var(--brand); box-shadow: var(--focus-ring); }
 .auth-submit { width: 100%; min-height: var(--space-7); margin-top: var(--space-1); }
 .auth-submit:disabled,.resend-copy button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
 .account-role-picker { margin: 0; padding: 0; border: 0; }
@@ -243,26 +240,6 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .privacy-copy button:hover { text-decoration: underline; }
 .auth-loading { grid-column: 1/-1; min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: var(--space-3); color: var(--muted); }
 .auth-loading p { font-size: var(--text-xs); }
-
-/* The demo's fixed verification code, printed where the code is asked for.
-   A code that is documented but not shown is a code a demo audience has to be
-   told out loud, which is one more thing that can go wrong on stage. */
-.fixed-code-note { margin: 0 0 var(--space-4); padding: var(--space-4); border: var(--border) solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-sunken); }
-.fixed-code-note strong { display: block; color: var(--brand-dark); font-size: var(--text-xs); }
-.fixed-code-note code { display: block; margin: var(--space-2) 0; color: var(--ink); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: var(--text-lg); font-weight: 800; letter-spacing: 6px; }
-.fixed-code-note p { margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.45; }
-
-/* An opt-in on the sign-in form, not a setting. It changes one sign-in, and it
-   resets with the account tab, because a preference that persists would make
-   the next automated run depend on what the last human clicked. */
-.delivery-choice { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); align-items: start; padding: var(--space-3) var(--space-4); border: var(--border) solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-sunken); cursor: pointer; }
-/* The control spans both text rows so the caption sits beside the box rather
-   than under it. Flat children on purpose: a wrapping <span> buries the label's
-   text past the depth jsx-a11y will accept as the control's accessible name. */
-.delivery-choice input { grid-row: 1 / span 2; width: var(--space-4); height: var(--space-4); margin: 3px 0 0; accent-color: var(--brand); cursor: pointer; }
-.delivery-choice b { display: block; color: var(--ink); font-size: var(--text-xs); }
-.delivery-choice small { display: block; margin-top: var(--space-1); color: var(--muted); font-size: var(--text-xs); font-weight: 400; line-height: 1.45; }
-.delivery-choice:has(input:focus-visible) { outline: var(--border-thick) solid var(--brand); outline-offset: 2px; }
 
 /* --- app shell + brand --------------------------------------------------- */
 .app-shell { min-height: 100vh; display: flex; }

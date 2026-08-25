@@ -109,207 +109,43 @@ a demo audience seeing "Approved" with no agent action needs to be told why.
 
 ## 4. Authentication
 
-Real password hashing, real signed sessions, real single-use codes — and
-deliberately fake code *delivery* for the two shared accounts.
+Real password hashing, real signed sessions, and real single-use codes
+delivered by email. There is no fixed or printed code anywhere.
 
-`chooseDelivery` in `lib/mfa-policy.ts` owns the decision and is pure, so both
-branches are provable without a mail provider, a database, or a network.
-`planVerification` only supplies the environment and picks the matching code.
+There used to be one, selectable per sign-in through a checkbox. It was removed
+as redundant: **Sign in without two-step verification** already covers every
+case where waiting on mail is the wrong trade, and a code printed on the screen
+beside the password it protects is not a second factor. Dropping it took with it
+a delivery-preference flag on the API, a column on `mfa_challenges`, a branch in
+the verification screen, and three tests — all of which existed only to describe
+which kind of code you were getting.
 
-| Account | Mail provider | Asked for email | Delivery | Code |
-| --- | --- | --- | --- | --- |
-| Shared demo | no | either | `fixed` | `111111` / `222222` |
-| Shared demo | yes | no | `fixed` | `111111` / `222222` |
-| Shared demo | yes | yes | `email` | Random, via Brevo |
-| Registered | no | — | `fixed` | `123456` |
-| Registered | yes | — | `email` | Random, via Brevo |
+So there are two paths, and which one you get is the button you press:
 
-Three rules, in order:
+| Button | Behaviour |
+| --- | --- |
+| Sign in without two-step verification | A session in one request. Shared demo accounts only; anything else gets `403`. |
+| Continue as … | A six-digit code by email, rate limited to one a minute and five an hour per address. |
 
-1. **No mail provider means no email.** A local checkout and CI have no Brevo
-   key and the sign-in flow still has to complete there. Without this the demo
-   would need a cloud account just to run.
-2. **A shared demo account uses its printed code unless asked otherwise.** Those
-   credentials are on the screen and in every automated suite; tying them to a
-   mailbox means one mail outage breaks every test and every live demo at once.
-   The checkbox opts one sign-in into the mailbox flow.
-3. **A registered account uses email.** Its address is real and was chosen by
-   whoever owns it, which is what verification is actually for.
+Consequences worth keeping in mind:
 
-Two consequences worth keeping:
+- **A checkout with no mail provider cannot complete the code path.** It answers
+  `502` and the screen says so. That is why the deploy gate signs in with the
+  bypass, exactly as the sibling project's does.
+- **Registration still works without mail**, up to the point of verification —
+  the account waits in `pending_users` and is only written to `users` once a
+  code is accepted.
 
-- **The preference does not persist.** It resets with the account tab, because a
-  preference that survived would make the next automated run depend on what the
-  last human clicked.
-- **The fallback announces itself.** Requesting email in an environment with no
-  provider shows the printed code *and* says why. A silent fallback would look
-  identical to the default and would hide a misconfigured deployment.
-
-Rate limiting applies only when `delivery` is `email`, and — the part that is
-easy to get wrong — it counts only challenges that were themselves delivered by
-email. `mfa_challenges.delivery` exists for that filter alone.
-
-The first version counted every challenge for the address. Fixed-code sign-ins
-send no mail but still wrote rows, so a test run silently exhausted the hourly
-budget and the next person trying to demonstrate the email flow was told "Too
-many codes were requested". The limit was throttling a provider it had never
-used. `tests/rate-limit-scope.test.ts` pins the corrected query, because the
-rule lives in SQL against a Cloudflare-only binding and cannot be reached from a
-unit test.
-
-Databases created before the column exists are migrated on first use by
-`addDeliveryColumnIfMissing`. Existing rows default to `fixed`: a challenge
-recorded before the distinction existed cannot be shown to have sent mail.
-
-Two details worth knowing:
+Two details that outlast the simplification:
 
 - **`readSession` re-reads the account on every request** and rejects the token
   if the name or role no longer match. Renaming a demo account therefore
   invalidates every session signed under the old name. That is intentional, and
   it is also why a rename looks like a mass logout.
-- **Registration is deferred.** A new account lives in `pending_users` keyed by
-  the challenge, and is only written to `users` once the code is accepted.
-
-## 5. Persistence
-
-One D1 database, five tables, and `CREATE TABLE IF NOT EXISTS` on first use — so
-a fresh environment needs no migration step to work. The Drizzle migration in
-`drizzle/` exists for tooling and for a controlled production rollout; runtime
-does not depend on it.
-
-`getDemoState()` validates every field on the way out and falls back to the seed
-value for anything that fails its guard. It falls back to a **whole** field, not
-a repaired one: a half-valid record leaves the UI reasoning about entries the
-guards already rejected.
-
-`resetDemoState()` and the no-row path both return a **deep copy** of the seed.
-Handing out the module-level constants would let one request's mutation leak
-into the next reader's "fresh" environment.
-
-The 24-hour reset runs opportunistically inside `getDemoState` and
-`saveDemoState`. Registered users survive it; workflow state does not.
-
-## 6. The stylesheet
-
-`app/globals.css` is the whole design system, and it holds one invariant:
-
-> **No colour or font-size literal exists outside the `:root` block.**
-
-The dark theme redeclares **only colour tokens**. The type, spacing and radius
-scales are theme-independent, so a dark-mode regression can only ever be a
-colour problem. Check it with:
-
-```bash
-grep -nE '#[0-9a-fA-F]{3,8}' app/globals.css | grep -v -E '^\s*[0-9]+:\s*--|:root'
-```
-
-Three deliberate exceptions, all commented in place:
-
-- `rgba()` overlays on surfaces that are dark in **both** themes (the hero and
-  auth gradients, the toast). They are theme-independent by construction.
-- `--on-accent`, `--accent-from`, `--accent-to`: text and gradient stops for
-  those always-dark surfaces. Do not collapse `--on-accent` into `--surface`;
-  they coincide in the light theme only, and `--surface` goes dark.
-- `:where(.has-tooltip) { position: relative }` has zero specificity on purpose.
-  It only supplies a containing block to triggers that lack one. A plain
-  `.has-tooltip` rule outranks `.modal-close`, which is already absolutely
-  positioned, and drops the close button into the dialog's text.
-
-### Two layout traps
-
-- **Any grid that reserves a column for an avatar** must grow that column inside
-  the `min-width: 1000px` block, where the avatar grows. Miss one and the avatar
-  overhangs the name beside it. The deploy gate checks this geometrically,
-  because nothing else can see it: the DOM is valid and the contrast passes.
-- **Do not position hero content absolutely.** The mobile hero originally pinned
-  its metric to the bottom, which assumed the copy above never grew. A two-line
-  heading ran straight through the vehicle row. It stacks in normal flow now,
-  and the gate asserts they do not overlap.
-
-## 7. The UI
-
-`shared/NorthlaneApp.tsx` compiles into **two** targets, so it cannot take
-framework-specific dependencies. No `next/*` imports, no server components.
-
-**Every dialog is owned by the root component**, in one discriminated union:
-
-```ts
-type PortalModal = null | { kind: "account" } | { kind: "quote" } | …
-```
-
-This makes "at most one dialog is mounted" structural rather than a rule someone
-has to remember. Two mounted dialogs mean two focus traps and two Escape
-listeners fighting each other, which is a defect the sibling project shipped and
-had to fix.
-
-`Modal` traps focus, restores it to the opener on close, closes on Escape, and
-**does not dismiss on backdrop click by default**. A stray click outside a form
-dialog used to destroy typed input, including a password. Read-only dialogs opt
-in with `dismissOnBackdrop`. Dialogs holding input pass `confirmDiscard`, which
-asks before throwing work away.
-
-`useTooltip` describes; it never renames. It uses `aria-describedby`, because an
-`aria-label` on a wrapper would replace the control's own accessible name. It
-opens on keyboard focus as well as hover and dismisses on Escape (WCAG 2.1
-1.4.13). Callers must add `has-tooltip` to the trigger's class list.
-
-## 8. The contract
-
-`public/openapi.json` is published and rendered at `/api-docs`. Three tests keep
-it honest, and they are the only thing standing between a renamed action and a
-lying contract:
-
-1. The `action` enum equals the TypeScript `DemoStateAction` union.
-2. `DemoState.required` and `.properties` equal the keys of `DEFAULT_DEMO_STATE`.
-3. `DemoStateActionRequest.properties` equals the fields the route actually
-   destructures — read out of `app/api/demo-state/route.ts` by regex, not from a
-   hardcoded list, because a hardcoded list passes while the route grows an
-   undocumented input.
-
-Add an action or a state field and `npm test` fails until the document catches
-up. That is the design.
-
-## 9. Verification
-
-| Command | Covers |
-| --- | --- |
-| `npm run lint` | ESLint with `jsx-a11y` recommended rules |
-| `npm test` | Business rules, contract drift, verification policy |
-| `npm run build` | The Worker target |
-| `npm --prefix vercel-frontend run build` | The Vercel target |
-| `npm run test:e2e` | The full story, both roles, both themes, mobile, accessibility |
-
-`npx tsc --noEmit` reports errors for `cloudflare:workers` and `D1Database`.
-Those types are injected by the Cloudflare Vite plugin at build time and are
-**not** available to a bare typecheck. The sibling project reports the identical
-set. `npm run build` is the type gate; a bare `tsc` is not.
-
-The E2E suite starts and stops its own dev server, writes artefacts to
-`test-results/e2e/`, and on failure saves a screenshot and a Playwright trace.
-
-## 10. Deployment
-
-Both targets are live:
-
-| Target | URL |
-| --- | --- |
-| Vercel frontend | <https://northlane-auto-demo.vercel.app> |
-| Cloudflare Worker | <https://northlane-auto-demo.thiago-nunes-5e0.workers.dev> |
-
-The Worker serves the whole application *and* the API on one origin; Vercel
-serves the frontend and rewrites `/api/*` to the Worker. Either origin is a
-valid automation target, and the single-origin Worker one avoids the proxy hop.
-
-The Worker is currently deployed by hand — `npm run build && npx wrangler
-deploy`. The CI deploy job exists but is gated behind the repository variable
-`CLOUDFLARE_PROVISIONED`; validation runs on every push regardless. Setting that
-variable and adding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` turns on
-automatic deploys from `main`.
-
-Email verification is live. `BREVO_API_KEY` is a Worker secret and
-`BREVO_SENDER_EMAIL` is `lumahealth.testrigordemo@gmail.com`, borrowed from the
-sibling demo because it is verified in the same Brevo account. The reader sees
-`BREVO_SENDER_NAME`, which is set to this project.
+- **Rate limiting protects the mail provider**, and now that every challenge
+  sends a message, every challenge is counted. An earlier version counted
+  fixed-code challenges too, which let automation exhaust a budget it never
+  used; that whole class of bug disappeared with the fixed codes.
 
 ### Brevo accepting a message does not mean it was delivered
 
@@ -351,9 +187,9 @@ Using redirected Wrangler configuration.
 
 So `npx wrangler deploy` after editing `wrangler.jsonc` silently redeploys the
 *previous* values. This cost a debugging cycle: the sender looked configured,
-the deploy succeeded, and the app kept answering `codeDelivery: "fixed"` because
-the Worker still had an empty sender bound. Always `npm run build` first, and
-confirm what actually shipped:
+the deploy succeeded, and the Worker went on behaving as though no sender was
+set, because the one it had bound was still the empty string. Always
+`npm run build` first, and confirm what actually shipped:
 
 ```bash
 grep -o '"BREVO_SENDER_EMAIL":"[^"]*"' dist/server/wrangler.json

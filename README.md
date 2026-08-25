@@ -31,33 +31,30 @@ npm install
 npm run dev
 ```
 
-Then open the URL the dev server prints and sign in with a demo account below.
-No cloud account, no secrets, and no email provider are required: `.dev.vars`
-supplies a local signing secret and the app falls back to fixed verification
-codes when no mail provider is configured.
+Then open the URL the dev server prints and sign in with a demo account below,
+using **Sign in without two-step verification** — a local checkout has no mail
+provider, so the emailed-code path cannot complete there and says so. `.dev.vars`
+supplies the local signing secret; nothing else is needed.
 
 ## Demo accounts
 
-| Role | Email | Password | Verification code |
-| --- | --- | --- | --- |
-| Policyholder | `customer.demo@testrigor-mail.com` | `CustomerDemo!2026` | `111111` |
-| Claims agent | `agent.demo@testrigor-mail.com` | `AgentDemo!2026` | `222222` |
-
-Both accounts can also skip verification entirely with **Sign in without two-step
-verification**, which returns a session in a single request.
-
-Three ways in, so the same account serves automation and a live demo:
-
-| You want | Do this | You get |
+| Role | Email | Password |
 | --- | --- | --- |
-| The fastest path for a test suite | **Sign in without two-step verification** | A session in one request |
-| The verification step, deterministically | **Continue as …** | The printed code above |
-| To demonstrate real email verification | Tick **Send the code by email instead** | A real message to that address |
+| Policyholder | `customer.demo@testrigor-mail.com` | `CustomerDemo!2026` |
+| Claims agent | `agent.demo@testrigor-mail.com` | `AgentDemo!2026` |
 
-The shared accounts default to their printed code on purpose: credentials used by
-every automated suite should not stop working because a mailbox does. Accounts
-you register yourself always verify by email when a provider is configured, and
-fall back to `123456` when one is not.
+Two ways in, and the choice is the button you press:
+
+| You want | Press | You get |
+| --- | --- | --- |
+| The path for automation | **Sign in without two-step verification** | A session in one request, no mailbox |
+| The verification step | **Continue as …** | A real six-digit code by email |
+
+There is no printed code. A code that can be read off the screen is not a second
+factor, and the bypass already covers every case where waiting for mail is the
+wrong trade — which is most automated ones.
+
+Requesting a code is rate limited to one a minute and five an hour per address.
 
 Payment uses one accepted card. Every other well-formed card is declined, so both
 outcomes are reachable without guessing:
@@ -163,10 +160,9 @@ in [`vercel.json`](vercel.json) and
   `true`, and add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`,
   to have `main` publish the Worker. Until then, deploy with `npx wrangler
   deploy` after `npm run build`.
-- ~~Real verification emails.~~ **Live.** Codes go through Brevo. Registered
-  accounts verify by email automatically; the shared accounts do it on request.
-  A local checkout has no key, so it still falls back to the printed code and
-  says so — which is what keeps the test suite runnable with no secrets.
+- ~~Real verification emails.~~ **Live.** Every code is a real message sent
+  through Brevo. A local checkout has no key, so the code path refuses in words
+  there; automation uses the bypass, which needs no mail at all.
 - **A sender on the testRigor domain.** The sender is currently borrowed from the
   sibling demo, because `testrigor-mail.com` is not authenticated in Brevo — it
   publishes no SPF, no DMARC and no Brevo DKIM selector, so mail sent as that

@@ -3,7 +3,7 @@
   "info": {
     "title": "Northlane Auto Demo API",
     "version": "1.0.0",
-    "description": "The complete HTTP contract of the Northlane Auto Insurance demo.\n\nThis is a fictional insurer built for QA automation training. No policy exists, no claim is real, and no money moves.\n\n**Signing in.** `POST /api/auth/login` with `skipMfa: true` and one of the two fixed demo accounts returns a session cookie in one call. Without it, the endpoint opens a two-step verification challenge and answers with `codeDelivery`, telling you whether the code was emailed or is one of the documented fixed codes:\n\n| Account | Password | Fixed code |\n| --- | --- | --- |\n| `customer.demo@testrigor-mail.com` | `CustomerDemo!2026` | `111111` |\n| `agent.demo@testrigor-mail.com` | `AgentDemo!2026` | `222222` |\n\nAn account you create yourself receives an emailed code when a mail provider is configured, and the fallback code `123456` when one is not.\n\n**Driving the workflow.** Every business transition goes through `PATCH /api/demo-state`. The state is a single row shared by every session, so the policyholder and the agent see each other's changes. `DELETE /api/demo-state` restores the seed data.\n\n**Status codes carry meaning.** `403` means the signed-in role may never perform that action. `400` means the request is malformed. `409` means the request is well-formed but the state is not ready for it."
+    "description": "The complete HTTP contract of the Northlane Auto Insurance demo.\n\nThis is a fictional insurer built for QA automation training. No policy exists, no claim is real, and no money moves.\n\n**Signing in.** There are two ways.\n\n`POST /api/auth/login` with `skipMfa: true` and one of the two shared demo accounts returns a session cookie in one call. That is the path automation should take: no mailbox, no waiting.\n\n| Account | Password |\n| --- | --- |\n| `customer.demo@testrigor-mail.com` | `CustomerDemo!2026` |\n| `agent.demo@testrigor-mail.com` | `AgentDemo!2026` |\n\nWithout `skipMfa`, the endpoint opens a two-step verification challenge and sends a real six-digit code by email. `POST /api/auth/verify` exchanges it for a session. Codes are single-use, expire in 10 minutes, and lock the challenge after five wrong attempts. Requesting them is rate limited: one a minute and five an hour per address.\n\n**Driving the workflow.** Every business transition goes through `PATCH /api/demo-state`. The state is a single row shared by every session, so the policyholder and the agent see each other's changes. `DELETE /api/demo-state` restores the seed data.\n\n**Status codes carry meaning.** `403` means the signed-in role may never perform that action. `400` means the request is malformed. `409` means the request is well-formed but the state is not ready for it."
   },
   "servers": [
     {
@@ -29,7 +29,7 @@
         ],
         "operationId": "login",
         "summary": "Sign in, or open a two-step verification challenge",
-        "description": "Signs in a fixed demo account directly when `skipMfa` is true. Otherwise opens a verification challenge and reports how the code was delivered. An email that matches no account is treated as a registration when the password is at least 8 characters.",
+        "description": "Signs a shared demo account in directly when `skipMfa` is true. Otherwise sends a six-digit code by email and opens a verification challenge. An email that matches no account is treated as a registration when the password is at least 8 characters.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -49,7 +49,7 @@
                   }
                 },
                 "fixedAccountChallenge": {
-                  "summary": "Fixed demo account, verification code 111111",
+                  "summary": "Fixed demo account, code sent by email",
                   "value": {
                     "email": "customer.demo@testrigor-mail.com",
                     "password": "CustomerDemo!2026",
@@ -57,21 +57,12 @@
                   }
                 },
                 "agentAccount": {
-                  "summary": "Claims agent, verification code 222222",
+                  "summary": "Claims agent, no verification step",
                   "value": {
                     "email": "agent.demo@testrigor-mail.com",
                     "password": "AgentDemo!2026",
                     "role": "agent",
                     "skipMfa": true
-                  }
-                },
-                "fixedAccountByEmail": {
-                  "summary": "Shared demo account, real emailed code",
-                  "value": {
-                    "email": "customer.demo@testrigor-mail.com",
-                    "password": "CustomerDemo!2026",
-                    "role": "customer",
-                    "deliverByEmail": true
                   }
                 }
               }
@@ -139,11 +130,11 @@
                 "$ref": "#/components/schemas/VerifyRequest"
               },
               "examples": {
-                "policyholder": {
-                  "summary": "The policyholder's fixed code",
+                "emailedCode": {
+                  "summary": "The six digits from the message",
                   "value": {
                     "challengeId": "3f6c9a1e-0d2b-4b6f-9f3c-2a1b7d8e5c40",
-                    "code": "111111"
+                    "code": "482915"
                   }
                 }
               }
@@ -570,8 +561,7 @@
         "required": [
           "challengeId",
           "destination",
-          "expiresInSeconds",
-          "codeDelivery"
+          "expiresInSeconds"
         ],
         "properties": {
           "challengeId": {
@@ -590,14 +580,6 @@
             "examples": [
               600
             ]
-          },
-          "codeDelivery": {
-            "type": "string",
-            "enum": [
-              "fixed",
-              "email"
-            ],
-            "description": "`fixed` means the code is one of the documented constants and no email was sent. `email` means a real message was delivered."
           }
         }
       },
@@ -624,11 +606,6 @@
             "type": "boolean",
             "default": false,
             "description": "Fixed demo accounts only. Any other account gets 403."
-          },
-          "deliverByEmail": {
-            "type": "boolean",
-            "default": false,
-            "description": "Ask for a real emailed code instead of the documented fixed one. Only affects the two shared demo accounts, and only when a mail provider is configured; otherwise the response comes back with `codeDelivery: \"fixed\"`. An account you registered always verifies by email when a provider is configured."
           }
         }
       },

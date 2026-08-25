@@ -11,10 +11,6 @@ export const mfaChallenges = sqliteTable(
     createdAt: integer("created_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
     consumedAt: integer("consumed_at"),
-    /** Only challenges delivered by email count against the hourly limit. */
-    delivery: text("delivery", { enum: ["fixed", "email"] })
-      .notNull()
-      .default("fixed"),
   },
   table => [
     index("mfa_challenges_email_created_idx").on(table.email, table.createdAt),

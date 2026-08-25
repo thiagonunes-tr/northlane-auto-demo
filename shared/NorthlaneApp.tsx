@@ -77,15 +77,12 @@ type PortalModal =
   | { kind: "decision"; decision: ClaimDecisionAction };
 
 type AuthUser = { email: string; name: string; role: Role };
-type CodeDelivery = "fixed" | "email";
 type Challenge = {
   id: string;
   destination: string;
   email: string;
   password: string;
   requestedRole?: Role;
-  delivery: CodeDelivery;
-  requestedEmail: boolean;
 };
 
 type PolicyholderProfile = {
@@ -463,7 +460,6 @@ export default function Home() {
     password: string,
     requestedRole?: Role,
     skipMfa = false,
-    deliverByEmail = false,
   ) {
     setAuthBusy(true);
     setAuthError("");
@@ -471,12 +467,11 @@ export default function Home() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role: requestedRole, skipMfa, deliverByEmail }),
+        body: JSON.stringify({ email, password, role: requestedRole, skipMfa }),
       });
       const data = await readJson<{
         challengeId?: string;
         destination?: string;
-        codeDelivery?: CodeDelivery;
         user?: AuthUser;
         error?: string;
       }>(response);
@@ -495,8 +490,6 @@ export default function Home() {
         email,
         password,
         requestedRole,
-        delivery: data.codeDelivery === "email" ? "email" : "fixed",
-        requestedEmail: deliverByEmail,
       });
     } catch (error) {
       setAuthError(
@@ -893,14 +886,7 @@ export default function Home() {
       onVerify={verifyCode}
       onBack={() => { setChallenge(null); setAuthError(""); }}
       onResend={() =>
-        challenge &&
-        startLogin(
-          challenge.email,
-          challenge.password,
-          challenge.requestedRole,
-          false,
-          challenge.requestedEmail,
-        )
+        challenge && startLogin(challenge.email, challenge.password, challenge.requestedRole)
       }
     />;
   }
@@ -1086,7 +1072,7 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
   challenge: Challenge | null;
   busy: boolean;
   error: string;
-  onLogin: (email: string, password: string, requestedRole?: Role, skipMfa?: boolean, deliverByEmail?: boolean) => Promise<void>;
+  onLogin: (email: string, password: string, requestedRole?: Role, skipMfa?: boolean) => Promise<void>;
   onVerify: (code: string) => Promise<void>;
   onBack: () => void;
   onResend: () => void;
@@ -1094,13 +1080,12 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
   const [selectedAccess, setSelectedAccess] = useState<"customer" | "agent" | "create">("customer");
   const [newAccountRole, setNewAccountRole] = useState<Role>("customer");
   const [code, setCode] = useState("");
-  const [deliverByEmail, setDeliverByEmail] = useState(false);
   const [copiedCredential, setCopiedCredential] = useState<"email" | "password" | null>(null);
 
   const credentials = selectedAccess === "customer"
-    ? { email: DEMO_CUSTOMER_EMAIL, password: "CustomerDemo!2026", label: "Policyholder", code: "111111" }
+    ? { email: DEMO_CUSTOMER_EMAIL, password: "CustomerDemo!2026", label: "Policyholder" }
     : selectedAccess === "agent"
-      ? { email: "agent.demo@testrigor-mail.com", password: "AgentDemo!2026", label: "Claims agent", code: "222222" }
+      ? { email: "agent.demo@testrigor-mail.com", password: "AgentDemo!2026", label: "Claims agent" }
       : null;
 
   function submitLogin(event: FormEvent<HTMLFormElement>) {
@@ -1116,7 +1101,6 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
           ? "agent"
           : "customer",
       submitter?.value === "skip-mfa",
-      deliverByEmail,
     );
   }
 
@@ -1149,7 +1133,7 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
         <span><Icon name="shield-check" size={18} /></span>
         <div>
           <strong>Two-step verification</strong>
-          <small>The shared demo accounts use a fixed code shown on the next screen. Accounts you create receive one by email when a mail provider is configured.</small>
+          <small>Every account is protected by a password and a one-time code sent by email. The two shared demo accounts can skip the code entirely.</small>
         </div>
       </div>
     </div>
@@ -1162,9 +1146,9 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
           <p className="auth-subtitle">Use a demo account, or create a new policyholder or agent account.</p>
 
           <div className="account-tabs" role="group" aria-label="Choose an account type">
-            <button type="button" className={selectedAccess === "customer" ? "active" : ""} onClick={() => { setSelectedAccess("customer"); setCopiedCredential(null); setDeliverByEmail(false); }}>Policyholder</button>
-            <button type="button" className={selectedAccess === "agent" ? "active" : ""} onClick={() => { setSelectedAccess("agent"); setCopiedCredential(null); setDeliverByEmail(false); }}>Agent</button>
-            <button type="button" className={selectedAccess === "create" ? "active" : ""} onClick={() => { setSelectedAccess("create"); setCopiedCredential(null); setDeliverByEmail(false); }}>Create account</button>
+            <button type="button" className={selectedAccess === "customer" ? "active" : ""} onClick={() => { setSelectedAccess("customer"); setCopiedCredential(null); }}>Policyholder</button>
+            <button type="button" className={selectedAccess === "agent" ? "active" : ""} onClick={() => { setSelectedAccess("agent"); setCopiedCredential(null); }}>Agent</button>
+            <button type="button" className={selectedAccess === "create" ? "active" : ""} onClick={() => { setSelectedAccess("create"); setCopiedCredential(null); }}>Create account</button>
           </div>
 
           <form className="auth-form" key={selectedAccess} onSubmit={submitLogin} autoComplete="off">
@@ -1177,16 +1161,6 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
                 <label className={newAccountRole === "agent" ? "selected" : ""}><input type="radio" name="new-account-role" value="agent" checked={newAccountRole === "agent"} onChange={() => setNewAccountRole("agent")} />Agent</label>
               </div>
             </fieldset>}
-            {credentials && <label className="delivery-choice">
-              <input
-                type="checkbox"
-                name="deliver-by-email"
-                checked={deliverByEmail}
-                onChange={event => setDeliverByEmail(event.target.checked)}
-              />
-              <b>Send the code by email instead</b>
-              <small>The shared accounts use their printed code by default, so automation never waits on a mailbox. Tick this to demonstrate the email flow. Falls back to the printed code if this environment has no mail provider.</small>
-            </label>}
             {error && <p className="auth-error" role="alert">{error}</p>}
             <button className="primary-button auth-submit" type="submit" disabled={busy}>
               {busy ? "Starting verification…" : credentials ? `Continue as ${credentials.label}` : "Create account"}
@@ -1206,10 +1180,7 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
               <div><span>Password</span><code>{credentials.password}</code></div>
               <button type="button" onClick={() => void copyCredential("password", credentials.password)}>{copiedCredential === "password" ? "Copied" : "Copy"}</button>
             </div>
-            <div className="credential-row">
-              <div><span>Verification code</span><code>{credentials.code}</code></div>
-            </div>
-            <p>Continue to enter the fixed code, or use the button above to sign in without it.</p>
+            <p>Continue to receive a verification code by email, or use the button above to sign in without one.</p>
           </div> : <div className="demo-credentials" aria-label="New account instructions">
             <div className="demo-credentials-heading"><strong>Create a new account</strong><span>Password + verification code</span></div>
             <p>Choose whether you are a policyholder or an agent, then enter your email and create a password with at least 8 characters.</p>
@@ -1217,22 +1188,10 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
           </div>}
         </> : <>
           <button className="auth-back" type="button" onClick={onBack}><Icon name="arrow-left" size={14} /> Back to sign in</button>
-          <div className="mail-icon"><Icon name={challenge.delivery === "email" ? "mail" : "shield-check"} size={24} /></div>
-          <p className="eyebrow">{challenge.delivery === "email" ? "CHECK YOUR EMAIL" : "TWO-STEP VERIFICATION"}</p>
+          <div className="mail-icon"><Icon name="mail" size={24} /></div>
+          <p className="eyebrow">CHECK YOUR EMAIL</p>
           <h2>Enter your verification code</h2>
-          {challenge.delivery === "email"
-            ? <p className="auth-subtitle">We sent a six-digit code to <strong>{challenge.destination}</strong>. It expires in 10 minutes.</p>
-            : <p className="auth-subtitle">{challenge.requestedEmail
-                ? "No mail provider is configured in this environment, so verification fell back to the printed code."
-                : "This demo account uses a fixed code instead of email, so the flow never depends on a mailbox."}</p>}
-
-          {challenge.delivery === "fixed" && <div className="fixed-code-note">
-            <strong>DEMO VERIFICATION CODE</strong>
-            <code>{fixedCodeFor(challenge)}</code>
-            <p>{challenge.requestedEmail
-              ? "You asked for an emailed code, but this environment has no mail provider configured, so the printed code applies instead."
-              : "Documented and unchanging. A test can hardcode it; a live audience can read it off the screen."}</p>
-          </div>}
+          <p className="auth-subtitle">We sent a six-digit code to <strong>{challenge.destination}</strong>. It expires in 10 minutes.</p>
 
           <form className="auth-form code-form" onSubmit={submitCode}>
             {/* eslint-disable-next-line jsx-a11y/no-autofocus -- this step exists only to
@@ -1242,9 +1201,9 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
             {error && <p className="auth-error" role="alert">{error}</p>}
             <button className="primary-button auth-submit" type="submit" disabled={busy || code.length !== 6}>{busy ? "Verifying…" : "Verify and sign in"}</button>
           </form>
-          {challenge.delivery === "email" && <p className="resend-copy">
+          <p className="resend-copy">
             Didn&apos;t receive it? <button type="button" onClick={onResend} disabled={busy}>Send a new code</button>
-          </p>}
+          </p>
         </>}
       </div>
       <p className="privacy-copy">
@@ -1257,16 +1216,6 @@ function AuthScreen({ challenge, busy, error, onLogin, onVerify, onBack, onResen
   </main>;
 }
 
-/**
- * Which fixed code this challenge expects. The two shared accounts have one
- * each; anything else falls back to the generic code the API uses when no mail
- * provider is configured.
- */
-function fixedCodeFor(challenge: Challenge): string {
-  if (challenge.email.trim().toLowerCase() === DEMO_CUSTOMER_EMAIL) return "111111";
-  if (challenge.email.trim().toLowerCase() === "agent.demo@testrigor-mail.com") return "222222";
-  return "123456";
-}
 
 function AccountModal({ user, onClose, onDeleted, onSignOut }: {
   user: AuthUser;

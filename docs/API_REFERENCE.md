@@ -42,7 +42,7 @@ Signs in directly, or opens a two-step verification challenge.
 | `email` | string | Required |
 | `password` | string | Required; at least 8 characters when registering |
 | `role` | `"customer"` \| `"agent"` | Optional; must match an existing account |
-| `skipMfa` | boolean | Fixed demo accounts only; anything else gets `403` |
+| `skipMfa` | boolean | Shared demo accounts only; anything else gets `403` |
 
 An email matching no account is treated as a registration. The account is only
 persisted once the verification code is accepted.
@@ -71,21 +71,15 @@ curl -s -X POST "$BASE/api/auth/login" \
 {
   "challengeId": "3f6c9a1e-0d2b-4b6f-9f3c-2a1b7d8e5c40",
   "destination": "cus••••••••••@testrigor-mail.com",
-  "expiresInSeconds": 600,
-  "codeDelivery": "fixed"
+  "expiresInSeconds": 600
 }
 ```
 
-`codeDelivery` tells a client which second step to render:
+A real six-digit code is sent to that address. There is no printed or fixed
+code: completing this path means reading the mailbox. For automation, use
+`skipMfa` instead.
 
-| Value | Meaning | Code to use |
-| --- | --- | --- |
-| `fixed` | No email was sent | `111111` (policyholder), `222222` (agent), `123456` (any other account when no mail provider is configured) |
-| `email` | A real message was delivered | Read it from the mailbox |
-
-Rate limiting (60-second cooldown, 5 per hour) applies **only** when
-`codeDelivery` is `email`. A fixed code sends no mail, so throttling it would
-only slow a test suite down.
+Rate limiting is a 60-second cooldown and 5 requests an hour, per address.
 
 | Status | Cause |
 | --- | --- |
@@ -103,7 +97,7 @@ and locks the challenge after 5 wrong attempts.
 ```bash
 curl -s -c cookies.txt -X POST "$BASE/api/auth/verify" \
   -H 'Content-Type: application/json' \
-  -d '{"challengeId":"<id>","code":"111111"}'
+  -d '{"challengeId":"<id>","code":"<the six digits from the email>"}'
 ```
 
 | Status | Cause |
@@ -308,6 +302,7 @@ curl -s -b cookies.txt -X DELETE "$BASE/api/demo-state"
 | Accepted card | `4111111111111111`, `12/30`, `123` | `verifyCard` |
 | Session lifetime | 8 hours | `SESSION_TTL_SECONDS` |
 | Verification code lifetime | 10 minutes, 5 attempts | `MFA_TTL_MS`, `MAX_MFA_ATTEMPTS` |
+| Code requests | 1 per minute, 5 per hour, per address | `RESEND_COOLDOWN_MS`, `HOURLY_EMAIL_LIMIT` |
 | Environment reset | Every 24 hours | `RESET_INTERVAL_MS` |
 
 All of these live in [`lib/demo-state.ts`](../lib/demo-state.ts) except the

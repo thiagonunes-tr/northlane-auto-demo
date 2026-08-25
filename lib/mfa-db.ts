@@ -49,8 +49,6 @@ export type ChallengeRecord = {
   created_at: number;
   expires_at: number;
   consumed_at: number | null;
-  /** How the code reached the person. Only "email" counts against the limit. */
-  delivery: "fixed" | "email";
 };
 
 export type UserRecord = {
@@ -86,8 +84,7 @@ export async function getMfaDb(): Promise<D1Database> {
         attempts integer DEFAULT 0 NOT NULL,
         created_at integer NOT NULL,
         expires_at integer NOT NULL,
-        consumed_at integer,
-        delivery text DEFAULT 'fixed' NOT NULL
+        consumed_at integer
       )`),
       db.prepare(
         "CREATE INDEX IF NOT EXISTS mfa_challenges_email_created_idx ON mfa_challenges (email, created_at)",
@@ -120,33 +117,12 @@ export async function getMfaDb(): Promise<D1Database> {
         last_reset_at integer NOT NULL
       )`),
     ]);
-    await addDeliveryColumnIfMissing(db);
     initialized = true;
   }
 
   return db;
 }
 
-/**
- * Brings a database created before `delivery` existed up to date.
- *
- * SQLite has no `ADD COLUMN IF NOT EXISTS`, and adding one that is already
- * there is an error rather than a no-op, so the column list is read first.
- * Existing rows default to `fixed`, which is the safe reading: a challenge
- * recorded before the distinction existed cannot be shown to have sent mail,
- * and treating it as email would keep throttling a provider it never used.
- */
-async function addDeliveryColumnIfMissing(db: D1Database): Promise<void> {
-  const columns = await db
-    .prepare("PRAGMA table_info(mfa_challenges)")
-    .all<{ name: string }>();
-  if (columns.results.some(column => column.name === "delivery")) return;
-  await db
-    .prepare(
-      "ALTER TABLE mfa_challenges ADD COLUMN delivery text DEFAULT 'fixed' NOT NULL",
-    )
-    .run();
-}
 
 export async function getStoredUser(email: string): Promise<UserRecord | null> {
   const db = await getMfaDb();

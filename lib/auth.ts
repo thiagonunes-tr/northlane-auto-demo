@@ -1,15 +1,11 @@
 import { env } from "cloudflare:workers";
 import { getStoredUser, storeUser } from "./mfa-db";
 
-import { chooseDelivery, type CodeDelivery } from "./mfa-policy";
-
 export {
   HOURLY_EMAIL_LIMIT,
   MAX_MFA_ATTEMPTS,
   RESEND_COOLDOWN_MS,
-  chooseDelivery,
 } from "./mfa-policy";
-export type { CodeDelivery } from "./mfa-policy";
 
 export type DemoRole = "customer" | "agent";
 
@@ -39,22 +35,6 @@ export const SESSION_COOKIE = "northlane_session";
 export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 export const MFA_TTL_MS = 10 * 60 * 1000;
 
-/* -------------------------------------------------------------------------- */
-/* Hybrid two-step verification                                                */
-/* -------------------------------------------------------------------------- */
-
-/** The per-role codes the build rules specify. */
-export const FIXED_MFA_CODES: Record<DemoRole, string> = {
-  customer: "111111",
-  agent: "222222",
-};
-
-/**
- * The code used for a created account when no mail provider is configured, so
- * a local checkout with no secrets still completes the whole sign-in flow.
- */
-export const FALLBACK_MFA_CODE = "123456";
-
 const accounts: DemoAccount[] = [
   {
     email: "customer.demo@testrigor-mail.com",
@@ -79,36 +59,6 @@ export function getRuntimeEnv(): RuntimeEnv {
 export function isDemoAccount(email: string): boolean {
   const normalized = email.trim().toLowerCase();
   return accounts.some(account => account.email === normalized);
-}
-
-/** True when a real verification email can actually be sent. */
-export function canSendEmail(): boolean {
-  const runtime = getRuntimeEnv();
-  return Boolean(runtime.BREVO_API_KEY && runtime.BREVO_SENDER_EMAIL);
-}
-
-/**
- * Decides how this sign-in verifies, and with which code.
- *
- * The rules live in `chooseDelivery`, which is pure. This function only supplies
- * the environment it needs and picks the matching code: a random one for email,
- * and otherwise the documented constant for whichever kind of account it is.
- */
-export function planVerification(
-  account: DemoAccount,
-  requestedEmail = false,
-): { delivery: CodeDelivery; code: string } {
-  const shared = isDemoAccount(account.email);
-  const delivery = chooseDelivery({
-    isSharedDemoAccount: shared,
-    mailConfigured: canSendEmail(),
-    requestedEmail,
-  });
-  if (delivery === "email") return { delivery, code: createMfaCode() };
-  return {
-    delivery,
-    code: shared ? FIXED_MFA_CODES[account.role] : FALLBACK_MFA_CODE,
-  };
 }
 
 export function isSecureRequest(request: {

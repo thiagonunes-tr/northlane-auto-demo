@@ -30,20 +30,24 @@ PORT = PARSED_BASE_URL.port or 4173
 
 CUSTOMER_EMAIL = "customer.demo@testrigor-mail.com"
 CUSTOMER_PASSWORD = "CustomerDemo!2026"
-CUSTOMER_CODE = "111111"
 AGENT_EMAIL = "agent.demo@testrigor-mail.com"
 AGENT_PASSWORD = "AgentDemo!2026"
 
 DEMO_CARD = "4111 1111 1111 1111"
 DECLINED_CARD = "5555 5555 5555 4444"
 
-# The scenario deliberately drives two refusals — a declined card (409) and a
-# wrong verification code (401) — and Chrome logs a console error for every
-# non-2xx fetch. Those two are the demo working, so they are filtered out by
-# status rather than by silencing the console check, which would also hide a
-# real failure. Uncaught JavaScript still fails the run through `pageerror`.
+# Refusals this scenario drives on purpose. Chrome logs a console error for
+# every non-2xx fetch, so without this list the demo behaving correctly would
+# fail the run. Filtered by status rather than by silencing the console check,
+# which would also hide a real failure, and kept to exactly the statuses the
+# scenario provokes so an unexpected one still surfaces. Uncaught JavaScript
+# always fails, through `pageerror`.
+#
+#   409  a declined payment card
+#   429  the fifth code request in an hour; this gate spends one per run
+#   502  a code requested where no mail provider is configured
 EXPECTED_HTTP_NOISE = re.compile(
-  r"Failed to load resource: the server responded with a status of (401|409)\b"
+  r"Failed to load resource: the server responded with a status of (409|429|502)\b"
 )
 
 
@@ -326,117 +330,7 @@ def read_state(page: Page) -> dict:
 # --------------------------------------------------------------------------- #
 
 
-def verify_two_step_verification(page: Page) -> None:
-  """The fixed-code path, which is the one a demo audience actually watches.
 
-  The code is printed on the screen rather than emailed, so this asserts both
-  that it is shown and that a wrong code is rejected before the right one is
-  accepted.
-  """
-  page.goto(BASE_URL)
-  page.wait_for_load_state("networkidle")
-  page.get_by_label("Email address").fill(CUSTOMER_EMAIL)
-  page.get_by_label("Password").fill(CUSTOMER_PASSWORD)
-  page.get_by_role("button", name="Continue as Policyholder").click()
-
-  code_note = page.locator(".fixed-code-note")
-  code_note.wait_for()
-  expect(code_note.locator("code")).to_have_text(CUSTOMER_CODE)
-  audit_surface(page, "verification step")
-
-  page.get_by_label("Verification code").fill("999999")
-  page.get_by_role("button", name="Verify and sign in").click()
-  expect(page.get_by_role("alert")).to_contain_text("That code is incorrect")
-
-  page.get_by_label("Verification code").fill(CUSTOMER_CODE)
-  page.get_by_role("button", name="Verify and sign in").click()
-  page.get_by_role("heading", name="Hello, Alex.").wait_for()
-  print("  two-step verification: fixed code shown, wrong code rejected")
-
-
-def verify_email_delivery_choice(page: Page) -> None:
-  """Asking for an emailed code is an explicit, per-sign-in choice.
-
-  Written to hold in every environment, because this gate is pointed at a
-  deployed origin as well as at a local server. Whether a mail provider exists
-  differs between them, so asserting one outcome would encode wherever it was
-  last run. What holds everywhere is the pair: whatever `codeDelivery` the API
-  reports, the screen has to match it, and the reader must never be left staring
-  at a code entry with no idea where the code is.
-  """
-  page.goto(BASE_URL)
-  page.wait_for_load_state("networkidle")
-  page.get_by_label("Email address").fill(CUSTOMER_EMAIL)
-  page.get_by_label("Password").fill(CUSTOMER_PASSWORD)
-
-  choice = page.get_by_label("Send the code by email instead")
-  expect(choice).not_to_be_checked()
-  choice.check()
-  audit_surface(page, "sign-in with the email choice")
-
-  with page.expect_response(lambda r: "/api/auth/login" in r.url) as caught:
-    page.get_by_role("button", name="Continue as Policyholder").click()
-  payload = caught.value.json()
-  delivery = payload.get("codeDelivery")
-  assert delivery in ("fixed", "email"), payload
-
-  if delivery == "fixed":
-    # No mail provider here. The screen shows the printed code and must say why,
-    # because a silent fallback looks identical to the default and would hide a
-    # misconfigured deployment.
-    note = page.locator(".fixed-code-note")
-    note.wait_for()
-    expect(note.locator("code")).to_have_text(CUSTOMER_CODE)
-    expect(note).to_contain_text("no mail provider")
-    page.get_by_label("Verification code").fill(CUSTOMER_CODE)
-    page.get_by_role("button", name="Verify and sign in").click()
-    page.get_by_role("heading", name="Hello, Alex.").wait_for()
-    print("  delivery choice: no provider here, fell back to the printed code and said so")
-  else:
-    # A provider is configured. The reader is sent to a mailbox, and no printed
-    # code may be offered — showing one would be a working code the email flow
-    # was supposed to replace.
-    expect(page.locator(".fixed-code-note")).to_have_count(0)
-    expect(page.locator(".auth-subtitle")).to_contain_text("@")
-    expect(page.get_by_role("button", name="Send a new code")).to_be_visible()
-    # The mailbox is out of scope for this gate; go back rather than guess.
-    page.get_by_role("button", name="Back to sign in").click()
-    page.get_by_role("button", name="QA API documentation").wait_for()
-    print("  delivery choice: provider configured, reader sent to the mailbox")
-
-
-def verify_registered_account_uses_email_when_available(page: Page) -> None:
-  """An account someone registers does not get the shared accounts' treatment.
-
-  With no mail provider it still falls back, but to the *generic* code rather
-  than a role code — the two are different constants and confusing them would
-  lock a new account out.
-  """
-  page.goto(BASE_URL)
-  page.wait_for_load_state("networkidle")
-  page.get_by_role("button", name="Create account", exact=True).click()
-  page.get_by_label("Email address").fill("priya.shah@example.test")
-  page.get_by_label("Password").fill("DemoPassword1")
-
-  # The choice belongs to the shared accounts only; a registered account has no
-  # printed code to prefer, so the control is not offered.
-  expect(page.get_by_label("Send the code by email instead")).to_have_count(0)
-
-  with page.expect_response(lambda r: "/api/auth/login" in r.url) as caught:
-    # Scoped to the form: the account-type tab carries the same label.
-    page.locator("form").get_by_role("button", name="Create account").click()
-  delivery = caught.value.json().get("codeDelivery")
-
-  if delivery == "fixed":
-    note = page.locator(".fixed-code-note")
-    note.wait_for()
-    # The generic constant, not a role code. Confusing the two locks a new
-    # account out of an environment where the role codes look plausible.
-    expect(note.locator("code")).to_have_text("123456")
-    print("  registered account: generic fallback code, no delivery choice offered")
-  else:
-    expect(page.locator(".fixed-code-note")).to_have_count(0)
-    print("  registered account: verified by email, no delivery choice offered")
 
 
 def verify_quote_and_purchase(page: Page) -> None:
@@ -746,6 +640,67 @@ def verify_mobile(page: Page) -> None:
   print("  mobile: bottom navigation, no overlap in the hero")
 
 
+def verify_verification_step(page: Page) -> None:
+  """The code path, as far as this gate can honestly take it.
+
+  Every code is a real email now — there is no printed fallback, which is what
+  keeps a working code off the screen. That also means this gate cannot complete
+  the flow: reading a mailbox is out of scope, and CI has no mail provider at
+  all. So it asserts the two things it can see, and both matter.
+
+  Where mail is configured the challenge opens and names the masked address.
+  Where it is not, the attempt has to fail *legibly* — a demo whose sign-in dies
+  with a stack trace or a silent spinner is worse than one that says it cannot
+  send right now.
+
+  The refusal is deliberately not pinned to one cause. Requesting a code is rate
+  limited at five an hour per address, and this gate spends one of them every
+  time it runs, so on the third run in an hour the honest answer is "too many
+  codes" rather than "no provider". Both are the app refusing in words, which is
+  the property worth gating on; pinning the cause would make the gate fail on
+  its own second run.
+  """
+  page.goto(BASE_URL)
+  page.wait_for_load_state("networkidle")
+  page.get_by_label("Email address").fill(CUSTOMER_EMAIL)
+  page.get_by_label("Password").fill(CUSTOMER_PASSWORD)
+
+  # No code may be printed on the sign-in screen. Checked as a shape rather than
+  # against the constants that used to be here, so reintroducing a *different*
+  # printed code is caught too — the point is that nothing readable beside the
+  # password can serve as the second factor.
+  card = page.locator(".auth-card").inner_text()
+  printed = re.findall(r"(?<!\d)\d{6}(?!\d)", card)
+  assert printed == [], f"a six-digit code is printed on the sign-in screen: {printed}"
+
+  with page.expect_response(lambda r: "/api/auth/login" in r.url) as caught:
+    page.get_by_role("button", name="Continue as Policyholder").click()
+  response = caught.value
+
+  if response.ok:
+    page.locator(".code-input").wait_for()
+    expect(page.locator(".auth-subtitle")).to_contain_text("@")
+    expect(page.get_by_role("button", name="Send a new code")).to_be_visible()
+    audit_surface(page, "verification step")
+    page.get_by_role("button", name="Back to sign in").click()
+    page.get_by_role("button", name="QA API documentation").wait_for()
+    print("  verification step: code sent, reader pointed at the mailbox")
+  else:
+    # No mail provider here. The refusal must reach the reader as a sentence.
+    alert = page.get_by_role("alert")
+    alert.wait_for()
+    message = alert.inner_text().strip()
+    assert message, "the refusal reached the reader as an empty box"
+    # A sentence, not a leaked object, a status code, or a parser error.
+    assert message.endswith("."), message
+    for leak in ("undefined", "[object", "Error:", "Unexpected token", "502", "429"):
+      assert leak not in message, f"internal detail leaked to the reader: {message}"
+    # And it must not strand them: the form is still there to go back to.
+    expect(page.get_by_role("button", name="Continue as Policyholder")).to_be_visible()
+    audit_surface(page, "verification unavailable")
+    print(f"  verification step: refused legibly ({response.status}) — {message}")
+
+
 def verify_api_docs(page: Page) -> None:
   page.goto(f"{BASE_URL}/api-docs")
   page.wait_for_load_state("networkidle")
@@ -814,14 +769,7 @@ def run_scenario(page: Page, upload: Path) -> None:
   sign_out(page)
 
   print("Sign-in paths")
-  verify_two_step_verification(page)
-  sign_out(page)
-  verify_email_delivery_choice(page)
-  # Only the fallback branch above completes a sign-in; the email branch stops
-  # at the mailbox and returns to the form.
-  if page.locator(".app-shell").count():
-    sign_out(page)
-  verify_registered_account_uses_email_when_available(page)
+  verify_verification_step(page)
   verify_api_docs(page)
 
 

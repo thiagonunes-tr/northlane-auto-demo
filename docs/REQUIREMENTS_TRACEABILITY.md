@@ -33,8 +33,9 @@ the two demos stay consistent:
 One deviation is specific to this project and is an improvement on the brief
 rather than a shortfall: the brief's *Login Rules* say not to build real
 authentication, while this app hashes passwords, signs sessions, and issues
-single-use verification codes. Code **delivery** for the shared demo accounts
-remains fake, exactly as the brief's *MFA Rules* prescribe.
+single-use verification codes delivered by email — which the brief's *MFA Rules*
+permit as one of the four allowed options. The concession to demo practicality
+is the documented bypass, not a fake code.
 
 ## 3. Customer-side requirements
 
@@ -95,9 +96,9 @@ consistent about what "platform coverage" means.
 | 1 | Do not build real authentication | Real registration, password hashing, signed sessions. | **Agreed adaptation** — mirrors the sibling project's approved decision |
 | 1 | Hardcoded demo users | Two fixed accounts, `customer.demo` and `agent.demo`. | **Implemented** |
 | 2 | Do not build production MFA | No authenticator app, no SMS, no push, no enrolment. | **Implemented** |
-| 2 | Role-based fixed MFA code | `111111` policyholder, `222222` agent, `123456` fallback — the brief's suggested values. | **Implemented** |
+| 2 | Role-based fixed MFA code | Built, then removed as redundant: the sign-in-without-verification button already covers it, and a code printed beside the password it protects is not a second factor. The brief permits email-based MFA as an alternative, which is what ships. | **Agreed adaptation** |
 | 3 | No external email systems | Brevo is optional and unused by default; the app is fully functional without it. | **Implemented** |
-| 3 | Verification code email | Available when a Brevo key is configured: automatic for registered accounts, and on request for the two shared demo accounts via an explicit per-sign-in choice. | **Implemented** |
+| 3 | Verification code email | The only verification path. Every code is a real message sent through Brevo. | **Implemented** |
 | 4 | No complex databases | One D1 database, five tables, one shared workflow row as JSON. | **Implemented** |
 | 5 | No real payments | Fake form, no processor, no money. | **Implemented** |
 | 5 | Card `4111 1111 1111 1111`, `12/30`, `123` | Exactly these values are accepted; anything else is declined. | **Implemented** |
@@ -133,8 +134,8 @@ already taken and shipped on the sibling health project.
 **Why:** shared demo accounts alone cannot demonstrate a registration flow, and
 registration is one of the most commonly automated workflows there is. The
 brief's underlying intent — that sign-in must never depend on an external
-service or a human reading a mailbox — is preserved: the two shared accounts use
-fixed codes and can bypass verification entirely in one request.
+service or a human reading a mailbox — is preserved by the bypass: either shared
+account signs in with a single request and touches no mail provider.
 
 ### 7.2 One workflow endpoint instead of several resource endpoints
 

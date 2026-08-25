@@ -6,11 +6,11 @@ import {
   createUserAccount,
   findAccount,
   hashMfaCode,
+  createMfaCode,
   hashPassword,
   isDemoAccount,
   isSecureRequest,
   maskEmail,
-  planVerification,
   sendMfaEmail,
   signSession,
   verifyPassword,
@@ -26,7 +26,6 @@ export async function POST(request: NextRequest) {
     password?: unknown;
     role?: unknown;
     skipMfa?: unknown;
-    deliverByEmail?: unknown;
   };
   try {
     body = await request.json();
@@ -40,11 +39,6 @@ export async function POST(request: NextRequest) {
   const email = typeof body.email === "string" ? body.email : "";
   const password = typeof body.password === "string" ? body.password : "";
   const skipMfa = body.skipMfa === true;
-  // Only meaningful for the two shared demo accounts, which default to their
-  // documented fixed code so that automation and a live demo never depend on a
-  // mailbox. An account someone registered always verifies by email when a mail
-  // provider is configured, asked for or not.
-  const deliverByEmail = body.deliverByEmail === true;
   const requestedRole =
     body.role === "agent" ? "agent" : body.role === "customer" ? "customer" : undefined;
 
@@ -103,52 +97,47 @@ export async function POST(request: NextRequest) {
     return response;
   }
 
-  const plan = planVerification(account, deliverByEmail);
-
   try {
     const db = await getMfaDb();
     const now = Date.now();
 
-    // Rate limiting exists to protect a mail provider. A fixed code sends no
-    // mail, so throttling it would only slow a test suite down for nothing.
-    if (plan.delivery === "email") {
-      // Only challenges that actually sent mail count. Counting every challenge
-      // let a suite signing in with fixed codes exhaust a budget it never used,
-      // which then blocked the one sign-in that wanted to demonstrate email.
-      const recent = await db
-        .prepare(
-          `SELECT created_at FROM mfa_challenges
-           WHERE email = ? AND created_at > ? AND delivery = 'email'
-           ORDER BY created_at DESC`,
-        )
-        .bind(account.email, now - 60 * 60 * 1000)
-        .all<{ created_at: number }>();
+    // Every challenge sends a real message, so every challenge is throttled:
+    // a minute between codes and five an hour per address. This is the only
+    // thing standing between a retry loop and the mail provider.
+    const recent = await db
+      .prepare(
+        `SELECT created_at FROM mfa_challenges
+         WHERE email = ? AND created_at > ?
+         ORDER BY created_at DESC`,
+      )
+      .bind(account.email, now - 60 * 60 * 1000)
+      .all<{ created_at: number }>();
 
-      const decision = evaluateMfaRequest(
-        recent.results.map(item => item.created_at),
-        now,
+    const decision = evaluateMfaRequest(
+      recent.results.map(item => item.created_at),
+      now,
+    );
+    if (!decision.allowed && decision.reason === "cooldown") {
+      return NextResponse.json(
+        {
+          error: `Please wait ${decision.retryAfterSeconds} seconds before requesting another code.`,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(decision.retryAfterSeconds) },
+        },
       );
-      if (!decision.allowed && decision.reason === "cooldown") {
-        return NextResponse.json(
-          {
-            error: `Please wait ${decision.retryAfterSeconds} seconds before requesting another code.`,
-          },
-          {
-            status: 429,
-            headers: { "Retry-After": String(decision.retryAfterSeconds) },
-          },
-        );
-      }
-      if (!decision.allowed) {
-        return NextResponse.json(
-          { error: "Too many codes were requested. Please try again later." },
-          { status: 429 },
-        );
-      }
+    }
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: "Too many codes were requested. Please try again later." },
+        { status: 429 },
+      );
     }
 
     const challengeId = crypto.randomUUID();
-    const codeHash = await hashMfaCode(challengeId, plan.code);
+    const code = createMfaCode();
+    const codeHash = await hashMfaCode(challengeId, code);
 
     const statements = [
       db
@@ -160,8 +149,8 @@ export async function POST(request: NextRequest) {
       db
         .prepare(
           `INSERT INTO mfa_challenges
-           (id, email, role, code_hash, attempts, created_at, expires_at, consumed_at, delivery)
-           VALUES (?, ?, ?, ?, 0, ?, ?, NULL, ?)`,
+           (id, email, role, code_hash, attempts, created_at, expires_at, consumed_at)
+           VALUES (?, ?, ?, ?, 0, ?, ?, NULL)`,
         )
         .bind(
           challengeId,
@@ -170,7 +159,6 @@ export async function POST(request: NextRequest) {
           codeHash,
           now,
           now + MFA_TTL_MS,
-          plan.delivery,
         ),
     ];
 
@@ -195,27 +183,22 @@ export async function POST(request: NextRequest) {
 
     await db.batch(statements);
 
-    if (plan.delivery === "email") {
-      try {
-        await sendMfaEmail(account.email, plan.code, challengeId);
-      } catch (error) {
-        await db.batch([
-          db.prepare("DELETE FROM mfa_challenges WHERE id = ?").bind(challengeId),
-          db
-            .prepare("DELETE FROM pending_users WHERE challenge_id = ?")
-            .bind(challengeId),
-        ]);
-        throw error;
-      }
+    try {
+      await sendMfaEmail(account.email, code, challengeId);
+    } catch (error) {
+      await db.batch([
+        db.prepare("DELETE FROM mfa_challenges WHERE id = ?").bind(challengeId),
+        db
+          .prepare("DELETE FROM pending_users WHERE challenge_id = ?")
+          .bind(challengeId),
+      ]);
+      throw error;
     }
 
     return NextResponse.json({
       challengeId,
       destination: maskEmail(account.email),
       expiresInSeconds: MFA_TTL_MS / 1000,
-      // The client shows a different second step for each: a mailbox to check,
-      // or the documented code printed on screen.
-      codeDelivery: plan.delivery,
     });
   } catch (error) {
     console.error("Could not create an MFA challenge", error);

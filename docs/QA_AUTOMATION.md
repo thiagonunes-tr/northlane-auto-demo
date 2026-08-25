@@ -46,9 +46,6 @@ cannot predict.
 
 | Thing | Value |
 | --- | --- |
-| Verification code, policyholder | `111111` |
-| Verification code, agent | `222222` |
-| Verification code, self-created account (no mail provider) | `123456` |
 | Accepted card | `4111 1111 1111 1111`, `12/30`, `123` |
 | Policy number | `NL-2026-004821` |
 | Claim reference | `CLM-2026-7714` |
@@ -61,42 +58,25 @@ previous claim closed. This is deliberate — a reference a test can hardcode is
 worth more here than a unique one — but it means you cannot use the reference to
 tell two claims apart. Use `filedAt`, `estimatedAmount`, or `status`.
 
-### Choosing how the code arrives
+### There is only one path for automation
 
-`POST /api/auth/login` accepts `deliverByEmail: true`, and the response's
-`codeDelivery` field says what actually happened. Assert on that field rather
-than on the screen: it is the only thing that distinguishes "email was never
-requested" from "email was requested and no provider is configured".
+`skipMfa: true` on either shared account. It answers with a session cookie in
+one request and touches no mailbox.
 
-| Account | `deliverByEmail` | Mail provider | `codeDelivery` |
-| --- | --- | --- | --- |
-| Shared demo | omitted | either | `fixed` |
-| Shared demo | `true` | none | `fixed` |
-| Shared demo | `true` | configured | `email` |
-| Registered | either | none | `fixed` |
-| Registered | either | configured | `email` |
+The other path — omitting `skipMfa` — sends a real six-digit code by email.
+There is no printed or fixed code anywhere: a code readable from the screen is
+not a second factor. Completing that path in a test therefore means reading a
+mailbox, which is a different kind of test from everything else in this guide.
 
-A suite should leave `deliverByEmail` alone. The shared accounts then always
-answer `fixed`, in every environment, which is what keeps the suite runnable
-without a mailbox.
+Two things to know if you go there anyway:
 
-**Environments differ, so do not hardcode the outcome.** A local checkout and CI
-have no mail provider and always answer `fixed`. The deployed environment has
-one, so the same request there answers `email`. A test that asserts one of them
-passes wherever it was written and fails everywhere else. Branch on the
-`codeDelivery` field instead — `verify_email_delivery_choice` in
-[`tests/e2e/full_demo.py`](../tests/e2e/full_demo.py) does, and asserts the pair
-that holds everywhere: whatever the API reports, the screen matches it.
-
-**The email branch is rate limited, and only the email branch.** Sixty seconds
-between codes and five per hour, per address, counting **only challenges that
-actually sent mail**. Signing in with printed codes or the bypass, however many
-times, never consumes that budget — so a suite cannot lock a presenter out of
-the email demo, which it used to be able to do.
-
-Exercising the email path five times within an hour on one address still
-produces a `429`, and that is the demo working. Use a different address, or the
-printed code, for anything repetitive.
+- **It is rate limited.** One code a minute and five an hour, per address. The
+  fifth request in an hour answers `429`, which is the demo working.
+- **It needs a mail provider.** A local checkout and CI have none, so the
+  attempt answers `502` and the screen says it could not start verification.
+  That is the correct behaviour there, not a defect — assert that the refusal is
+  legible rather than asserting which refusal it is, or your test will fail on
+  its own second run.
 
 ## Cross-role scenarios
 
@@ -177,6 +157,8 @@ wrong; a suite that never exercises them is not testing much.
 | Card `5555 5555 5555 4444` | `409` | `That card was declined` |
 | Card `4111` | `400` | `Enter a 16-digit card number` |
 | Verification code `999999` | `401` | `That code is incorrect. 4 attempts remaining.` |
+| Sixth code request in an hour | `429` | `Too many codes were requested` |
+| Requesting a code with no mail provider | `502` | `We could not start two-step verification` |
 | Five wrong codes | `429` | `Too many incorrect attempts` |
 | Re-quoting the current tier | `409` | `already on Standard coverage` |
 | Second claim while one is open | `409` | `has to be closed before you file another` |
@@ -227,7 +209,6 @@ any UI change has to update it in the same commit.
 | Claim queue row | `.queue-row`, `.queue-row.highlighted` |
 | Claim card for the agent | `.request-card`, `.request-card.highlighted` |
 | Quote price lines | `.quote-breakdown`, `.quote-breakdown li.total` |
-| Fixed verification code | `.fixed-code-note code` |
 | Directory result rows | `.directory-results > button` |
 | Any dialog | `[role="dialog"]` |
 
