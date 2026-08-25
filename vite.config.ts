@@ -3,11 +3,10 @@ import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
-// Placeholders until the D1 database is provisioned. Local `npm run dev` uses
-// Miniflare's own on-disk SQLite and ignores the id entirely; a real deploy
-// must set both variables to the values Cloudflare hands back.
+// Local `npm run dev` uses Miniflare's own on-disk SQLite and ignores the id;
+// a deploy binds the real database below.
 const PRODUCTION_DATABASE_NAME = "northlane-auto-demo-db";
-const PRODUCTION_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
+const PRODUCTION_DATABASE_ID = "97e10f3c-01ef-40cf-bc27-64cdb8700dbe";
 
 // A staging deploy must not share production's D1 row: the demo state is a
 // single global row, so one shared database means a preview mutates production.

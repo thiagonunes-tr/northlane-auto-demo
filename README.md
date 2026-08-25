@@ -11,6 +11,19 @@ same stack, same design system, same QA-automation purpose, different domain.
 > Everything here is fictional. Northlane sells no policies, pays no claims, and
 > handles no money. Do not enter real licence, vehicle, or card details.
 
+## Live environment
+
+| Target | URL |
+| --- | --- |
+| Frontend (Vercel) | <https://northlane-auto-demo.vercel.app> |
+| API + app (Cloudflare Worker) | <https://northlane-auto-demo.thiago-nunes-5e0.workers.dev> |
+| Swagger console | <https://northlane-auto-demo.vercel.app/api-docs> |
+
+The Vercel frontend proxies `/api/*` to the Worker. The Worker is the source of
+truth for authentication, sessions, users and workflow state, and also serves the
+whole application on its own origin — useful when you want a single-origin
+environment for automation.
+
 ## Quick start
 
 ```bash
@@ -117,25 +130,32 @@ against the TypeScript source, so the contract cannot drift silently.
 
 ## Provisioning
 
-**Nothing is deployed yet.** The repository builds and tests green, and the
-deploy job is gated behind a repository variable so CI does not attempt to push
-to resources that do not exist.
+Already done, and recorded here so the next environment can be rebuilt from
+nothing:
 
-To go live:
+| Resource | Value |
+| --- | --- |
+| D1 database | `northlane-auto-demo-db` · `97e10f3c-01ef-40cf-bc27-64cdb8700dbe` |
+| Worker | `northlane-auto-demo`, binding `DB` |
+| Worker secret | `MFA_SESSION_SECRET` — set, never committed |
+| Vercel project | Git integration on this repository |
 
-1. Create the Cloudflare D1 database, then set `PRODUCTION_DATABASE_NAME` and
-   `PRODUCTION_DATABASE_ID` in [`vite.config.ts`](vite.config.ts). They are
-   currently placeholders.
-2. Set the Worker signing secret:
-   `npx wrangler secret put MFA_SESSION_SECRET --name northlane-auto-demo`
-3. Add the GitHub Actions secrets `CLOUDFLARE_API_TOKEN` and
-   `CLOUDFLARE_ACCOUNT_ID`.
-4. Set the repository variable `CLOUDFLARE_PROVISIONED` to `true` to enable the
-   deploy job.
-5. Create the Vercel project pointing at this repository, and replace the
-   placeholder Worker URL in [`vercel.json`](vercel.json) and
-   [`vercel-frontend/vercel.json`](vercel-frontend/vercel.json).
-6. Optionally add `BREVO_API_KEY` as a Worker secret and set
-   `BREVO_SENDER_EMAIL` in [`wrangler.jsonc`](wrangler.jsonc) to switch
-   self-created accounts from the fallback code to real emailed codes. The two
-   fixed demo accounts always keep their documented codes.
+The database id lives in [`vite.config.ts`](vite.config.ts) and the Worker origin
+in [`vercel.json`](vercel.json) and
+[`vercel-frontend/vercel.json`](vercel-frontend/vercel.json).
+
+### Still optional
+
+- **Automatic Worker deploys.** CI validates every push, but the deploy job is
+  gated behind the repository variable `CLOUDFLARE_PROVISIONED`. Set it to
+  `true`, and add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`,
+  to have `main` publish the Worker. Until then, deploy with `npx wrangler
+  deploy` after `npm run build`.
+- **Real verification emails.** Add `BREVO_API_KEY` as a Worker secret and set
+  `BREVO_SENDER_EMAIL` in [`wrangler.jsonc`](wrangler.jsonc). This affects
+  self-created accounts only; the two fixed demo accounts always keep their
+  documented codes.
+- **A staging environment.** Create a second D1 database and set
+  `D1_DATABASE_NAME` and `D1_DATABASE_ID` together at build time. Never point
+  staging at the production database: the workflow state is a single global row,
+  so a preview would mutate production.

@@ -11,7 +11,9 @@ drifted will fail `npm test`.
 Set a base URL first:
 
 ```bash
-BASE=http://localhost:3000     # or the deployed origin
+BASE=https://northlane-auto-demo.thiago-nunes-5e0.workers.dev   # the Worker, single origin
+# BASE=https://northlane-auto-demo.vercel.app                    # the Vercel frontend, proxies /api
+# BASE=http://localhost:3000                                     # local dev
 ```
 
 ## Status codes carry meaning

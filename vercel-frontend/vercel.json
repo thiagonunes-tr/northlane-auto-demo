@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://northlane-auto-demo.workers.dev/api/:path*"
+      "destination": "https://northlane-auto-demo.thiago-nunes-5e0.workers.dev/api/:path*"
     },
     {
       "source": "/:path*",

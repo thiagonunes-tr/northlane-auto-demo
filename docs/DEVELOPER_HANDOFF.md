@@ -256,18 +256,40 @@ The E2E suite starts and stops its own dev server, writes artefacts to
 
 ## 10. Deployment
 
-**Nothing is provisioned yet.** The deploy job in
-`.github/workflows/deploy.yml` is gated behind the repository variable
-`CLOUDFLARE_PROVISIONED`; validation runs on every push regardless. See the
-README's *Provisioning* section for the ordered list.
+Both targets are live:
 
-Placeholders that must be replaced before a real deploy:
-
-| File | Placeholder |
+| Target | URL |
 | --- | --- |
-| `vite.config.ts` | `PRODUCTION_DATABASE_ID`, `PRODUCTION_DATABASE_NAME` |
-| `vercel.json`, `vercel-frontend/vercel.json` | The Worker origin in the `/api/*` rewrite |
-| `wrangler.jsonc` | `BREVO_SENDER_EMAIL`, if real email is wanted |
+| Vercel frontend | <https://northlane-auto-demo.vercel.app> |
+| Cloudflare Worker | <https://northlane-auto-demo.thiago-nunes-5e0.workers.dev> |
+
+The Worker serves the whole application *and* the API on one origin; Vercel
+serves the frontend and rewrites `/api/*` to the Worker. Either origin is a
+valid automation target, and the single-origin Worker one avoids the proxy hop.
+
+The Worker is currently deployed by hand — `npm run build && npx wrangler
+deploy`. The CI deploy job exists but is gated behind the repository variable
+`CLOUDFLARE_PROVISIONED`; validation runs on every push regardless. Setting that
+variable and adding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` turns on
+automatic deploys from `main`.
+
+One placeholder is left on purpose: `BREVO_SENDER_EMAIL` in `wrangler.jsonc` is
+empty, so self-created accounts use the documented fallback code rather than a
+real email. Fill it, and add `BREVO_API_KEY` as a Worker secret, to switch.
+
+### A deployed frontend needs a deployed Worker
+
+The frontend was published before the Worker existed, and the result is worth
+recording: the site loaded, rendered the sign-in screen correctly, and failed
+every request with a proxy 502, because the rewrite pointed at a hostname that
+did not resolve. Nothing about the page suggested the backend was the problem.
+
+Two consequences, both now handled. The rewrite target in `vercel.json` and
+`vercel-frontend/vercel.json` must be a Worker that actually exists — a
+`workers.dev` URL is `<name>.<account-subdomain>.workers.dev`, not
+`<name>.workers.dev`. And `lib/http.ts` exists because the app used to show the
+JSON parser's own error message to the reader when a gateway answered in
+anything other than JSON.
 
 Two operational rules inherited from the sibling project, both learned the hard
 way:
