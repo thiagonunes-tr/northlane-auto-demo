@@ -2,9 +2,14 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "northlane-auto-demo",
   "vars": {
-    // Only used when a real mail provider is configured. Without BREVO_API_KEY
-    // the app falls back to the documented fixed verification codes.
-    "BREVO_SENDER_EMAIL": "northlane-auto@testrigor-mail.com",
+    // The sender must be an address Brevo has verified, and whose domain
+    // authorises Brevo to send for it. northlane-auto@testrigor-mail.com was
+    // tried first because it is the on-brand, brief-compliant choice, but that
+    // domain publishes no SPF, no DMARC and no Brevo DKIM selector: Brevo
+    // accepted the API call and the message was dropped downstream. Until the
+    // domain is authenticated in Brevo, this borrows the sibling demo's
+    // verified address. The display name below is what a reader actually sees.
+    "BREVO_SENDER_EMAIL": "lumahealth.testrigordemo@gmail.com",
     "BREVO_SENDER_NAME": "Northlane Auto (demo)"
   },
   "observability": {

@@ -307,9 +307,36 @@ variable and adding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` turns on
 automatic deploys from `main`.
 
 Email verification is live. `BREVO_API_KEY` is a Worker secret and
-`BREVO_SENDER_EMAIL` is `northlane-auto@testrigor-mail.com` — an address on the
-testRigor mail domain rather than a personal mailbox, which is what the brief's
-*Email Rules* ask for and an improvement on the sibling project's Gmail sender.
+`BREVO_SENDER_EMAIL` is `lumahealth.testrigordemo@gmail.com`, borrowed from the
+sibling demo because it is verified in the same Brevo account. The reader sees
+`BREVO_SENDER_NAME`, which is set to this project.
+
+### Brevo accepting a message does not mean it was delivered
+
+`northlane-auto@testrigor-mail.com` was tried first: on-brand, and on the domain
+the brief's *Email Rules* actually ask for. Brevo answered 2xx, the app showed
+"check your email", and nothing arrived.
+
+The domain publishes no SPF, no DMARC and no Brevo DKIM selector:
+
+```bash
+curl -s -H 'accept: application/dns-json' \
+  'https://cloudflare-dns.com/dns-query?name=testrigor-mail.com&type=TXT'
+```
+
+So the receiving server saw mail from Brevo's infrastructure claiming to be that
+domain with nothing authorising it, and dropped it. The API call succeeding
+proved only that Brevo took the message, not that anyone got it.
+
+**The proper fix, if the sender should live on the testRigor domain:**
+authenticate `testrigor-mail.com` at <https://app.brevo.com/senders/domain/list>
+and publish the DKIM and SPF records Brevo hands back. That needs DNS access to
+the domain. Until then, borrowing a verified address is the working option.
+
+Whatever the sender, confirm delivery in Brevo's transactional log
+(<https://app.brevo.com/transactional/statistics/events>) rather than from the
+app: the log distinguishes *sent*, *delivered*, *soft bounce*, *hard bounce* and
+*blocked*, and the app can only ever report the first.
 
 ### Editing wrangler.jsonc requires a rebuild
 

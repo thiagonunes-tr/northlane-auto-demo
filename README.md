@@ -149,7 +149,7 @@ nothing:
 | D1 database | `northlane-auto-demo-db` · `97e10f3c-01ef-40cf-bc27-64cdb8700dbe` |
 | Worker | `northlane-auto-demo`, binding `DB` |
 | Worker secrets | `MFA_SESSION_SECRET`, `BREVO_API_KEY` — set, never committed |
-| Mail sender | `northlane-auto@testrigor-mail.com` |
+| Mail sender | `lumahealth.testrigordemo@gmail.com`, shown as “Northlane Auto (demo)” |
 | Vercel project | Git integration on this repository |
 
 The database id lives in [`vite.config.ts`](vite.config.ts) and the Worker origin
@@ -163,11 +163,15 @@ in [`vercel.json`](vercel.json) and
   `true`, and add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`,
   to have `main` publish the Worker. Until then, deploy with `npx wrangler
   deploy` after `npm run build`.
-- ~~Real verification emails.~~ **Live.** Codes are sent through Brevo from
-  `northlane-auto@testrigor-mail.com`. Registered accounts verify by email
-  automatically; the shared accounts do it on request. A local checkout has no
-  key, so it still falls back to the printed code and says so — which is what
-  keeps the test suite runnable with no secrets.
+- ~~Real verification emails.~~ **Live.** Codes go through Brevo. Registered
+  accounts verify by email automatically; the shared accounts do it on request.
+  A local checkout has no key, so it still falls back to the printed code and
+  says so — which is what keeps the test suite runnable with no secrets.
+- **A sender on the testRigor domain.** The sender is currently borrowed from the
+  sibling demo, because `testrigor-mail.com` is not authenticated in Brevo — it
+  publishes no SPF, no DMARC and no Brevo DKIM selector, so mail sent as that
+  domain is accepted by Brevo and dropped on delivery. Authenticate the domain at
+  <https://app.brevo.com/senders/domain/list> and the sender can move on-brand.
 - **A staging environment.** Create a second D1 database and set
   `D1_DATABASE_NAME` and `D1_DATABASE_ID` together at build time. Never point
   staging at the production database: the workflow state is a single global row,
