@@ -112,10 +112,13 @@ export async function POST(request: NextRequest) {
     // Rate limiting exists to protect a mail provider. A fixed code sends no
     // mail, so throttling it would only slow a test suite down for nothing.
     if (plan.delivery === "email") {
+      // Only challenges that actually sent mail count. Counting every challenge
+      // let a suite signing in with fixed codes exhaust a budget it never used,
+      // which then blocked the one sign-in that wanted to demonstrate email.
       const recent = await db
         .prepare(
           `SELECT created_at FROM mfa_challenges
-           WHERE email = ? AND created_at > ?
+           WHERE email = ? AND created_at > ? AND delivery = 'email'
            ORDER BY created_at DESC`,
         )
         .bind(account.email, now - 60 * 60 * 1000)
@@ -157,8 +160,8 @@ export async function POST(request: NextRequest) {
       db
         .prepare(
           `INSERT INTO mfa_challenges
-           (id, email, role, code_hash, attempts, created_at, expires_at, consumed_at)
-           VALUES (?, ?, ?, ?, 0, ?, ?, NULL)`,
+           (id, email, role, code_hash, attempts, created_at, expires_at, consumed_at, delivery)
+           VALUES (?, ?, ?, ?, 0, ?, ?, NULL, ?)`,
         )
         .bind(
           challengeId,
@@ -167,6 +170,7 @@ export async function POST(request: NextRequest) {
           codeHash,
           now,
           now + MFA_TTL_MS,
+          plan.delivery,
         ),
     ];
 

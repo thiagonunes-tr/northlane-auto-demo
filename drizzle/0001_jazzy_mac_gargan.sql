@@ -1,0 +1,1 @@
+ALTER TABLE `mfa_challenges` ADD `delivery` text DEFAULT 'fixed' NOT NULL;

@@ -88,11 +88,15 @@ passes wherever it was written and fails everywhere else. Branch on the
 [`tests/e2e/full_demo.py`](../tests/e2e/full_demo.py) does, and asserts the pair
 that holds everywhere: whatever the API reports, the screen matches it.
 
-**The email branch is rate limited and the limit is easy to hit.** Sixty seconds
-between codes and five per hour, per address, counting every challenge for that
-address regardless of how it was delivered. Exercising the email path a handful
-of times in a row will produce a `429`, which is the demo working. Reach for the
-bypass or the printed code for anything repetitive.
+**The email branch is rate limited, and only the email branch.** Sixty seconds
+between codes and five per hour, per address, counting **only challenges that
+actually sent mail**. Signing in with printed codes or the bypass, however many
+times, never consumes that budget — so a suite cannot lock a presenter out of
+the email demo, which it used to be able to do.
+
+Exercising the email path five times within an hour on one address still
+produces a `429`, and that is the demo working. Use a different address, or the
+printed code, for anything repetitive.
 
 ## Cross-role scenarios
 

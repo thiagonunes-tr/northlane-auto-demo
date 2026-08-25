@@ -145,8 +145,21 @@ Two consequences worth keeping:
   provider shows the printed code *and* says why. A silent fallback would look
   identical to the default and would hide a misconfigured deployment.
 
-Rate limiting applies only when `delivery` is `email`. It exists to protect a
-mail provider; throttling a fixed code would only slow a test suite down.
+Rate limiting applies only when `delivery` is `email`, and — the part that is
+easy to get wrong — it counts only challenges that were themselves delivered by
+email. `mfa_challenges.delivery` exists for that filter alone.
+
+The first version counted every challenge for the address. Fixed-code sign-ins
+send no mail but still wrote rows, so a test run silently exhausted the hourly
+budget and the next person trying to demonstrate the email flow was told "Too
+many codes were requested". The limit was throttling a provider it had never
+used. `tests/rate-limit-scope.test.ts` pins the corrected query, because the
+rule lives in SQL against a Cloudflare-only binding and cannot be reached from a
+unit test.
+
+Databases created before the column exists are migrated on first use by
+`addDeliveryColumnIfMissing`. Existing rows default to `fixed`: a challenge
+recorded before the distinction existed cannot be shown to have sent mail.
 
 Two details worth knowing:
 
