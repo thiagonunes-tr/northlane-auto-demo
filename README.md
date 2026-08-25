@@ -52,7 +52,7 @@ Three ways in, so the same account serves automation and a live demo:
 | --- | --- | --- |
 | The fastest path for a test suite | **Sign in without two-step verification** | A session in one request |
 | The verification step, deterministically | **Continue as …** | The printed code above |
-| To demonstrate real email verification | Tick **Send the code by email instead** | A real message, when a mail provider is configured |
+| To demonstrate real email verification | Tick **Send the code by email instead** | A real message to that address |
 
 The shared accounts default to their printed code on purpose: credentials used by
 every automated suite should not stop working because a mailbox does. Accounts
@@ -148,7 +148,8 @@ nothing:
 | --- | --- |
 | D1 database | `northlane-auto-demo-db` · `97e10f3c-01ef-40cf-bc27-64cdb8700dbe` |
 | Worker | `northlane-auto-demo`, binding `DB` |
-| Worker secret | `MFA_SESSION_SECRET` — set, never committed |
+| Worker secrets | `MFA_SESSION_SECRET`, `BREVO_API_KEY` — set, never committed |
+| Mail sender | `northlane-auto@testrigor-mail.com` |
 | Vercel project | Git integration on this repository |
 
 The database id lives in [`vite.config.ts`](vite.config.ts) and the Worker origin
@@ -162,11 +163,11 @@ in [`vercel.json`](vercel.json) and
   `true`, and add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`,
   to have `main` publish the Worker. Until then, deploy with `npx wrangler
   deploy` after `npm run build`.
-- **Real verification emails.** Add `BREVO_API_KEY` as a Worker secret and set
-  `BREVO_SENDER_EMAIL` in [`wrangler.jsonc`](wrangler.jsonc) to a sender address
-  verified in Brevo. Until both are set, every code falls back to a printed one
-  and the sign-in screen says so. Once set, registered accounts verify by email
-  automatically and the shared accounts do it on request.
+- ~~Real verification emails.~~ **Live.** Codes are sent through Brevo from
+  `northlane-auto@testrigor-mail.com`. Registered accounts verify by email
+  automatically; the shared accounts do it on request. A local checkout has no
+  key, so it still falls back to the printed code and says so — which is what
+  keeps the test suite runnable with no secrets.
 - **A staging environment.** Create a second D1 database and set
   `D1_DATABASE_NAME` and `D1_DATABASE_ID` together at build time. Never point
   staging at the production database: the workflow state is a single global row,

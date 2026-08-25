@@ -80,6 +80,20 @@ A suite should leave `deliverByEmail` alone. The shared accounts then always
 answer `fixed`, in every environment, which is what keeps the suite runnable
 without a mailbox.
 
+**Environments differ, so do not hardcode the outcome.** A local checkout and CI
+have no mail provider and always answer `fixed`. The deployed environment has
+one, so the same request there answers `email`. A test that asserts one of them
+passes wherever it was written and fails everywhere else. Branch on the
+`codeDelivery` field instead — `verify_email_delivery_choice` in
+[`tests/e2e/full_demo.py`](../tests/e2e/full_demo.py) does, and asserts the pair
+that holds everywhere: whatever the API reports, the screen matches it.
+
+**The email branch is rate limited and the limit is easy to hit.** Sixty seconds
+between codes and five per hour, per address, counting every challenge for that
+address regardless of how it was delivered. Exercising the email path a handful
+of times in a row will produce a `429`, which is the demo working. Reach for the
+bypass or the printed code for anything repetitive.
+
 ## Cross-role scenarios
 
 ### 1. The fast-track boundary

@@ -4,7 +4,7 @@
   "vars": {
     // Only used when a real mail provider is configured. Without BREVO_API_KEY
     // the app falls back to the documented fixed verification codes.
-    "BREVO_SENDER_EMAIL": "",
+    "BREVO_SENDER_EMAIL": "northlane-auto@testrigor-mail.com",
     "BREVO_SENDER_NAME": "Northlane Auto (demo)"
   },
   "observability": {

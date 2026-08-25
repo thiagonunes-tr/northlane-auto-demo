@@ -357,14 +357,12 @@ def verify_two_step_verification(page: Page) -> None:
 def verify_email_delivery_choice(page: Page) -> None:
   """Asking for an emailed code is an explicit, per-sign-in choice.
 
-  This environment has no mail provider, so the request is answered with the
-  printed code and a line saying why. That is the branch worth asserting here:
-  the gate must stay runnable with no secrets, and a fallback that silently
-  looked identical to the default would hide a misconfigured deployment.
-
-  What the API decided is checked directly, because the screen alone cannot
-  distinguish "email was never asked for" from "email was asked for and was
-  unavailable".
+  Written to hold in every environment, because this gate is pointed at a
+  deployed origin as well as at a local server. Whether a mail provider exists
+  differs between them, so asserting one outcome would encode wherever it was
+  last run. What holds everywhere is the pair: whatever `codeDelivery` the API
+  reports, the screen has to match it, and the reader must never be left staring
+  at a code entry with no idea where the code is.
   """
   page.goto(BASE_URL)
   page.wait_for_load_state("networkidle")
@@ -379,20 +377,32 @@ def verify_email_delivery_choice(page: Page) -> None:
   with page.expect_response(lambda r: "/api/auth/login" in r.url) as caught:
     page.get_by_role("button", name="Continue as Policyholder").click()
   payload = caught.value.json()
-  assert payload["codeDelivery"] == "fixed", (
-    f"no mail provider is configured here, so the code must fall back: {payload}"
-  )
+  delivery = payload.get("codeDelivery")
+  assert delivery in ("fixed", "email"), payload
 
-  note = page.locator(".fixed-code-note")
-  note.wait_for()
-  expect(note.locator("code")).to_have_text(CUSTOMER_CODE)
-  # The screen has to say the fallback happened, not just show a code.
-  expect(note).to_contain_text("no mail provider")
-
-  page.get_by_label("Verification code").fill(CUSTOMER_CODE)
-  page.get_by_role("button", name="Verify and sign in").click()
-  page.get_by_role("heading", name="Hello, Alex.").wait_for()
-  print("  delivery choice: email requested, fell back to the printed code, said so")
+  if delivery == "fixed":
+    # No mail provider here. The screen shows the printed code and must say why,
+    # because a silent fallback looks identical to the default and would hide a
+    # misconfigured deployment.
+    note = page.locator(".fixed-code-note")
+    note.wait_for()
+    expect(note.locator("code")).to_have_text(CUSTOMER_CODE)
+    expect(note).to_contain_text("no mail provider")
+    page.get_by_label("Verification code").fill(CUSTOMER_CODE)
+    page.get_by_role("button", name="Verify and sign in").click()
+    page.get_by_role("heading", name="Hello, Alex.").wait_for()
+    print("  delivery choice: no provider here, fell back to the printed code and said so")
+  else:
+    # A provider is configured. The reader is sent to a mailbox, and no printed
+    # code may be offered — showing one would be a working code the email flow
+    # was supposed to replace.
+    expect(page.locator(".fixed-code-note")).to_have_count(0)
+    expect(page.locator(".auth-subtitle")).to_contain_text("@")
+    expect(page.get_by_role("button", name="Send a new code")).to_be_visible()
+    # The mailbox is out of scope for this gate; go back rather than guess.
+    page.get_by_role("button", name="Back to sign in").click()
+    page.get_by_role("button", name="QA API documentation").wait_for()
+    print("  delivery choice: provider configured, reader sent to the mailbox")
 
 
 def verify_registered_account_uses_email_when_available(page: Page) -> None:
@@ -415,12 +425,18 @@ def verify_registered_account_uses_email_when_available(page: Page) -> None:
   with page.expect_response(lambda r: "/api/auth/login" in r.url) as caught:
     # Scoped to the form: the account-type tab carries the same label.
     page.locator("form").get_by_role("button", name="Create account").click()
-  assert caught.value.json()["codeDelivery"] == "fixed"
+  delivery = caught.value.json().get("codeDelivery")
 
-  note = page.locator(".fixed-code-note")
-  note.wait_for()
-  expect(note.locator("code")).to_have_text("123456")
-  print("  registered account: generic fallback code, no delivery choice offered")
+  if delivery == "fixed":
+    note = page.locator(".fixed-code-note")
+    note.wait_for()
+    # The generic constant, not a role code. Confusing the two locks a new
+    # account out of an environment where the role codes look plausible.
+    expect(note.locator("code")).to_have_text("123456")
+    print("  registered account: generic fallback code, no delivery choice offered")
+  else:
+    expect(page.locator(".fixed-code-note")).to_have_count(0)
+    print("  registered account: verified by email, no delivery choice offered")
 
 
 def verify_quote_and_purchase(page: Page) -> None:
@@ -801,7 +817,10 @@ def run_scenario(page: Page, upload: Path) -> None:
   verify_two_step_verification(page)
   sign_out(page)
   verify_email_delivery_choice(page)
-  sign_out(page)
+  # Only the fallback branch above completes a sign-in; the email branch stops
+  # at the mailbox and returns to the form.
+  if page.locator(".app-shell").count():
+    sign_out(page)
   verify_registered_account_uses_email_when_available(page)
   verify_api_docs(page)
 

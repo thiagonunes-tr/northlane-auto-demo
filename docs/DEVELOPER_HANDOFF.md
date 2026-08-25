@@ -293,9 +293,33 @@ deploy`. The CI deploy job exists but is gated behind the repository variable
 variable and adding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` turns on
 automatic deploys from `main`.
 
-One placeholder is left on purpose: `BREVO_SENDER_EMAIL` in `wrangler.jsonc` is
-empty, so self-created accounts use the documented fallback code rather than a
-real email. Fill it, and add `BREVO_API_KEY` as a Worker secret, to switch.
+Email verification is live. `BREVO_API_KEY` is a Worker secret and
+`BREVO_SENDER_EMAIL` is `northlane-auto@testrigor-mail.com` — an address on the
+testRigor mail domain rather than a personal mailbox, which is what the brief's
+*Email Rules* ask for and an improvement on the sibling project's Gmail sender.
+
+### Editing wrangler.jsonc requires a rebuild
+
+`wrangler deploy` does **not** read `wrangler.jsonc` directly. The build emits a
+redirected configuration and wrangler uses that:
+
+```
+Using redirected Wrangler configuration.
+ - Configuration being used: "dist/server/wrangler.json"
+ - Original user's configuration: "wrangler.jsonc"
+```
+
+So `npx wrangler deploy` after editing `wrangler.jsonc` silently redeploys the
+*previous* values. This cost a debugging cycle: the sender looked configured,
+the deploy succeeded, and the app kept answering `codeDelivery: "fixed"` because
+the Worker still had an empty sender bound. Always `npm run build` first, and
+confirm what actually shipped:
+
+```bash
+grep -o '"BREVO_SENDER_EMAIL":"[^"]*"' dist/server/wrangler.json
+```
+
+The deploy output also prints every binding it is about to attach. Read it.
 
 ### A deployed frontend needs a deployed Worker
 
