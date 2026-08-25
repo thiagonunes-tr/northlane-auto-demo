@@ -97,7 +97,7 @@ consistent about what "platform coverage" means.
 | 2 | Do not build production MFA | No authenticator app, no SMS, no push, no enrolment. | **Implemented** |
 | 2 | Role-based fixed MFA code | `111111` policyholder, `222222` agent, `123456` fallback — the brief's suggested values. | **Implemented** |
 | 3 | No external email systems | Brevo is optional and unused by default; the app is fully functional without it. | **Implemented** |
-| 3 | Verification code email | Available when a Brevo key is configured, for self-created accounts only. | **Implemented** |
+| 3 | Verification code email | Available when a Brevo key is configured: automatic for registered accounts, and on request for the two shared demo accounts via an explicit per-sign-in choice. | **Implemented** |
 | 4 | No complex databases | One D1 database, five tables, one shared workflow row as JSON. | **Implemented** |
 | 5 | No real payments | Fake form, no processor, no money. | **Implemented** |
 | 5 | Card `4111 1111 1111 1111`, `12/30`, `123` | Exactly these values are accepted; anything else is declined. | **Implemented** |
