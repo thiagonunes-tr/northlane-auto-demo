@@ -41,6 +41,7 @@ import type {
   Vehicle,
   VehicleUse,
 } from "../lib/demo-state";
+import { readJson } from "../lib/http";
 import { Icon, type IconName } from "./Icon";
 import { Modal } from "./Modal";
 import { useTooltip } from "./Tooltip";
@@ -410,7 +411,7 @@ export default function Home() {
     fetch("/api/auth/session", { cache: "no-store" })
       .then(async response => {
         if (!response.ok) return null;
-        const data = (await response.json()) as { user: AuthUser };
+        const data = await readJson<{ user: AuthUser }>(response);
         return data.user;
       })
       .then(sessionUser => {
@@ -434,7 +435,7 @@ export default function Home() {
     fetch("/api/demo-state", { cache: "no-store" })
       .then(async response => {
         if (!response.ok) throw new Error("The demo environment could not be loaded.");
-        return response.json() as Promise<{ state: DemoState }>;
+        return readJson<{ state: DemoState }>(response);
       })
       .then(data => {
         if (active) setDemo(data.state);
@@ -470,13 +471,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, role: requestedRole, skipMfa }),
       });
-      const data = (await response.json()) as {
+      const data = await readJson<{
         challengeId?: string;
         destination?: string;
         codeDelivery?: CodeDelivery;
         user?: AuthUser;
         error?: string;
-      };
+      }>(response);
       if (response.ok && data.user) {
         setUser(data.user);
         setChallenge(null);
@@ -513,7 +514,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ challengeId: challenge.id, code }),
       });
-      const data = (await response.json()) as { user?: AuthUser; error?: string };
+      const data = await readJson<{ user?: AuthUser; error?: string }>(response);
       if (!response.ok || !data.user) {
         throw new Error(data.error ?? "The code could not be verified.");
       }
@@ -602,7 +603,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...input }),
       });
-      const data = (await response.json()) as { state?: DemoState; error?: string };
+      const data = await readJson<{ state?: DemoState; error?: string }>(response);
       if (!response.ok || !data.state) {
         throw new Error(friendlyActionError(response.status, data.error));
       }
@@ -783,7 +784,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark-messages-read" }),
       });
-      const data = (await response.json()) as { state?: DemoState };
+      const data = await readJson<{ state?: DemoState }>(response);
       if (response.ok && data.state) setDemo(data.state);
     } catch {
       // A failed read marker is not worth interrupting the user over.
@@ -1266,7 +1267,7 @@ function AccountModal({ user, onClose, onDeleted, onSignOut }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password, confirmation }),
       });
-      const data = (await response.json()) as { ok?: boolean; error?: string };
+      const data = await readJson<{ ok?: boolean; error?: string }>(response);
       if (!response.ok || !data.ok) {
         throw new Error(data.error ?? "The account could not be deleted.");
       }
