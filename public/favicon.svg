@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Northlane Auto">
+  <rect width="32" height="32" rx="9" fill="#1e5cb8" />
+  <rect x="9" y="7" width="4" height="18" rx="2" fill="#ffffff" />
+  <rect x="19" y="11" width="4" height="10" rx="2" fill="#ffffff" />
+</svg>

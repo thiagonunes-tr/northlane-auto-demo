@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "northlane-auto-demo",
+  "vars": {
+    // Only used when a real mail provider is configured. Without BREVO_API_KEY
+    // the app falls back to the documented fixed verification codes.
+    "BREVO_SENDER_EMAIL": "",
+    "BREVO_SENDER_NAME": "Northlane Auto (demo)"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
