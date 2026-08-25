@@ -354,6 +354,75 @@ def verify_two_step_verification(page: Page) -> None:
   print("  two-step verification: fixed code shown, wrong code rejected")
 
 
+def verify_email_delivery_choice(page: Page) -> None:
+  """Asking for an emailed code is an explicit, per-sign-in choice.
+
+  This environment has no mail provider, so the request is answered with the
+  printed code and a line saying why. That is the branch worth asserting here:
+  the gate must stay runnable with no secrets, and a fallback that silently
+  looked identical to the default would hide a misconfigured deployment.
+
+  What the API decided is checked directly, because the screen alone cannot
+  distinguish "email was never asked for" from "email was asked for and was
+  unavailable".
+  """
+  page.goto(BASE_URL)
+  page.wait_for_load_state("networkidle")
+  page.get_by_label("Email address").fill(CUSTOMER_EMAIL)
+  page.get_by_label("Password").fill(CUSTOMER_PASSWORD)
+
+  choice = page.get_by_label("Send the code by email instead")
+  expect(choice).not_to_be_checked()
+  choice.check()
+  audit_surface(page, "sign-in with the email choice")
+
+  with page.expect_response(lambda r: "/api/auth/login" in r.url) as caught:
+    page.get_by_role("button", name="Continue as Policyholder").click()
+  payload = caught.value.json()
+  assert payload["codeDelivery"] == "fixed", (
+    f"no mail provider is configured here, so the code must fall back: {payload}"
+  )
+
+  note = page.locator(".fixed-code-note")
+  note.wait_for()
+  expect(note.locator("code")).to_have_text(CUSTOMER_CODE)
+  # The screen has to say the fallback happened, not just show a code.
+  expect(note).to_contain_text("no mail provider")
+
+  page.get_by_label("Verification code").fill(CUSTOMER_CODE)
+  page.get_by_role("button", name="Verify and sign in").click()
+  page.get_by_role("heading", name="Hello, Alex.").wait_for()
+  print("  delivery choice: email requested, fell back to the printed code, said so")
+
+
+def verify_registered_account_uses_email_when_available(page: Page) -> None:
+  """An account someone registers does not get the shared accounts' treatment.
+
+  With no mail provider it still falls back, but to the *generic* code rather
+  than a role code — the two are different constants and confusing them would
+  lock a new account out.
+  """
+  page.goto(BASE_URL)
+  page.wait_for_load_state("networkidle")
+  page.get_by_role("button", name="Create account", exact=True).click()
+  page.get_by_label("Email address").fill("priya.shah@example.test")
+  page.get_by_label("Password").fill("DemoPassword1")
+
+  # The choice belongs to the shared accounts only; a registered account has no
+  # printed code to prefer, so the control is not offered.
+  expect(page.get_by_label("Send the code by email instead")).to_have_count(0)
+
+  with page.expect_response(lambda r: "/api/auth/login" in r.url) as caught:
+    # Scoped to the form: the account-type tab carries the same label.
+    page.locator("form").get_by_role("button", name="Create account").click()
+  assert caught.value.json()["codeDelivery"] == "fixed"
+
+  note = page.locator(".fixed-code-note")
+  note.wait_for()
+  expect(note.locator("code")).to_have_text("123456")
+  print("  registered account: generic fallback code, no delivery choice offered")
+
+
 def verify_quote_and_purchase(page: Page) -> None:
   """A quote is priced, explained line by line, and only changes the policy on accept."""
   sidebar(page, "Policy")
@@ -731,6 +800,9 @@ def run_scenario(page: Page, upload: Path) -> None:
   print("Sign-in paths")
   verify_two_step_verification(page)
   sign_out(page)
+  verify_email_delivery_choice(page)
+  sign_out(page)
+  verify_registered_account_uses_email_when_available(page)
   verify_api_docs(page)
 
 

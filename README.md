@@ -44,9 +44,20 @@ codes when no mail provider is configured.
 | Claims agent | `agent.demo@testrigor-mail.com` | `AgentDemo!2026` | `222222` |
 
 Both accounts can also skip verification entirely with **Sign in without two-step
-verification**, which returns a session in a single request. Accounts you create
-yourself use the fallback code `123456`, or a real emailed code when a Brevo key
-is configured.
+verification**, which returns a session in a single request.
+
+Three ways in, so the same account serves automation and a live demo:
+
+| You want | Do this | You get |
+| --- | --- | --- |
+| The fastest path for a test suite | **Sign in without two-step verification** | A session in one request |
+| The verification step, deterministically | **Continue as …** | The printed code above |
+| To demonstrate real email verification | Tick **Send the code by email instead** | A real message, when a mail provider is configured |
+
+The shared accounts default to their printed code on purpose: credentials used by
+every automated suite should not stop working because a mailbox does. Accounts
+you register yourself always verify by email when a provider is configured, and
+fall back to `123456` when one is not.
 
 Payment uses one accepted card. Every other well-formed card is declined, so both
 outcomes are reachable without guessing:
@@ -152,9 +163,10 @@ in [`vercel.json`](vercel.json) and
   to have `main` publish the Worker. Until then, deploy with `npx wrangler
   deploy` after `npm run build`.
 - **Real verification emails.** Add `BREVO_API_KEY` as a Worker secret and set
-  `BREVO_SENDER_EMAIL` in [`wrangler.jsonc`](wrangler.jsonc). This affects
-  self-created accounts only; the two fixed demo accounts always keep their
-  documented codes.
+  `BREVO_SENDER_EMAIL` in [`wrangler.jsonc`](wrangler.jsonc) to a sender address
+  verified in Brevo. Until both are set, every code falls back to a printed one
+  and the sign-in screen says so. Once set, registered accounts verify by email
+  automatically and the shared accounts do it on request.
 - **A staging environment.** Create a second D1 database and set
   `D1_DATABASE_NAME` and `D1_DATABASE_ID` together at build time. Never point
   staging at the production database: the workflow state is a single global row,

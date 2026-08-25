@@ -61,6 +61,25 @@ previous claim closed. This is deliberate — a reference a test can hardcode is
 worth more here than a unique one — but it means you cannot use the reference to
 tell two claims apart. Use `filedAt`, `estimatedAmount`, or `status`.
 
+### Choosing how the code arrives
+
+`POST /api/auth/login` accepts `deliverByEmail: true`, and the response's
+`codeDelivery` field says what actually happened. Assert on that field rather
+than on the screen: it is the only thing that distinguishes "email was never
+requested" from "email was requested and no provider is configured".
+
+| Account | `deliverByEmail` | Mail provider | `codeDelivery` |
+| --- | --- | --- | --- |
+| Shared demo | omitted | either | `fixed` |
+| Shared demo | `true` | none | `fixed` |
+| Shared demo | `true` | configured | `email` |
+| Registered | either | none | `fixed` |
+| Registered | either | configured | `email` |
+
+A suite should leave `deliverByEmail` alone. The shared accounts then always
+answer `fixed`, in every environment, which is what keeps the suite runnable
+without a mailbox.
+
 ## Cross-role scenarios
 
 ### 1. The fast-track boundary

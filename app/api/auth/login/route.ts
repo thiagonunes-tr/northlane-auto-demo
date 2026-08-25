@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
     password?: unknown;
     role?: unknown;
     skipMfa?: unknown;
+    deliverByEmail?: unknown;
   };
   try {
     body = await request.json();
@@ -39,6 +40,11 @@ export async function POST(request: NextRequest) {
   const email = typeof body.email === "string" ? body.email : "";
   const password = typeof body.password === "string" ? body.password : "";
   const skipMfa = body.skipMfa === true;
+  // Only meaningful for the two shared demo accounts, which default to their
+  // documented fixed code so that automation and a live demo never depend on a
+  // mailbox. An account someone registered always verifies by email when a mail
+  // provider is configured, asked for or not.
+  const deliverByEmail = body.deliverByEmail === true;
   const requestedRole =
     body.role === "agent" ? "agent" : body.role === "customer" ? "customer" : undefined;
 
@@ -97,7 +103,7 @@ export async function POST(request: NextRequest) {
     return response;
   }
 
-  const plan = planVerification(account);
+  const plan = planVerification(account, deliverByEmail);
 
   try {
     const db = await getMfaDb();

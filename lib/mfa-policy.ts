@@ -52,3 +52,41 @@ export function evaluateMfaRequest(
   }
   return { allowed: true };
 }
+
+/** How a verification code reaches the person signing in. */
+export type CodeDelivery = "fixed" | "email";
+
+export type DeliveryContext = {
+  /** One of the two shared demo accounts printed on the sign-in screen. */
+  isSharedDemoAccount: boolean;
+  /** A mail provider is configured and could actually send right now. */
+  mailConfigured: boolean;
+  /** The person signing in explicitly asked for an emailed code. */
+  requestedEmail: boolean;
+};
+
+/**
+ * Decides whether this sign-in gets a real emailed code or a documented fixed
+ * one.
+ *
+ * Three rules, in order, each earning its place:
+ *
+ * 1. **No mail provider means no email.** A local checkout and CI have no
+ *    Brevo key, and the sign-in flow still has to complete there. Without this
+ *    the whole demo would need a cloud account to run.
+ * 2. **A shared demo account uses a fixed code unless asked otherwise.** Those
+ *    credentials are printed on the screen and used by every automated suite;
+ *    tying them to a mailbox means one mail outage breaks every test and every
+ *    live demo at once. Asking explicitly opts into the mailbox flow for the
+ *    one sign-in that wants to show it.
+ * 3. **An account someone registered uses email.** Its address is real and was
+ *    chosen by whoever owns it, which is the case real verification is for.
+ *
+ * Pure and separate from the Worker environment so both branches are provable
+ * without a mail provider, a database, or a network.
+ */
+export function chooseDelivery(context: DeliveryContext): CodeDelivery {
+  if (!context.mailConfigured) return "fixed";
+  if (context.isSharedDemoAccount) return context.requestedEmail ? "email" : "fixed";
+  return "email";
+}

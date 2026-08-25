@@ -6,16 +6,27 @@
     "description": "The complete HTTP contract of the Northlane Auto Insurance demo.\n\nThis is a fictional insurer built for QA automation training. No policy exists, no claim is real, and no money moves.\n\n**Signing in.** `POST /api/auth/login` with `skipMfa: true` and one of the two fixed demo accounts returns a session cookie in one call. Without it, the endpoint opens a two-step verification challenge and answers with `codeDelivery`, telling you whether the code was emailed or is one of the documented fixed codes:\n\n| Account | Password | Fixed code |\n| --- | --- | --- |\n| `customer.demo@testrigor-mail.com` | `CustomerDemo!2026` | `111111` |\n| `agent.demo@testrigor-mail.com` | `AgentDemo!2026` | `222222` |\n\nAn account you create yourself receives an emailed code when a mail provider is configured, and the fallback code `123456` when one is not.\n\n**Driving the workflow.** Every business transition goes through `PATCH /api/demo-state`. The state is a single row shared by every session, so the policyholder and the agent see each other's changes. `DELETE /api/demo-state` restores the seed data.\n\n**Status codes carry meaning.** `403` means the signed-in role may never perform that action. `400` means the request is malformed. `409` means the request is well-formed but the state is not ready for it."
   },
   "servers": [
-    { "url": "/", "description": "The current environment" }
+    {
+      "url": "/",
+      "description": "The current environment"
+    }
   ],
   "tags": [
-    { "name": "Authentication", "description": "Sign-in, two-step verification, session and account lifecycle." },
-    { "name": "Demo state", "description": "The shared quote, policy, claim, billing and messaging workflow." }
+    {
+      "name": "Authentication",
+      "description": "Sign-in, two-step verification, session and account lifecycle."
+    },
+    {
+      "name": "Demo state",
+      "description": "The shared quote, policy, claim, billing and messaging workflow."
+    }
   ],
   "paths": {
     "/api/auth/login": {
       "post": {
-        "tags": ["Authentication"],
+        "tags": [
+          "Authentication"
+        ],
         "operationId": "login",
         "summary": "Sign in, or open a two-step verification challenge",
         "description": "Signs in a fixed demo account directly when `skipMfa` is true. Otherwise opens a verification challenge and reports how the code was delivered. An email that matches no account is treated as a registration when the password is at least 8 characters.",
@@ -24,19 +35,44 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/LoginRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
               "examples": {
                 "fixedAccountBypass": {
                   "summary": "Fixed demo account, no verification step",
-                  "value": { "email": "customer.demo@testrigor-mail.com", "password": "CustomerDemo!2026", "role": "customer", "skipMfa": true }
+                  "value": {
+                    "email": "customer.demo@testrigor-mail.com",
+                    "password": "CustomerDemo!2026",
+                    "role": "customer",
+                    "skipMfa": true
+                  }
                 },
                 "fixedAccountChallenge": {
                   "summary": "Fixed demo account, verification code 111111",
-                  "value": { "email": "customer.demo@testrigor-mail.com", "password": "CustomerDemo!2026", "role": "customer" }
+                  "value": {
+                    "email": "customer.demo@testrigor-mail.com",
+                    "password": "CustomerDemo!2026",
+                    "role": "customer"
+                  }
                 },
                 "agentAccount": {
                   "summary": "Claims agent, verification code 222222",
-                  "value": { "email": "agent.demo@testrigor-mail.com", "password": "AgentDemo!2026", "role": "agent", "skipMfa": true }
+                  "value": {
+                    "email": "agent.demo@testrigor-mail.com",
+                    "password": "AgentDemo!2026",
+                    "role": "agent",
+                    "skipMfa": true
+                  }
+                },
+                "fixedAccountByEmail": {
+                  "summary": "Shared demo account, real emailed code",
+                  "value": {
+                    "email": "customer.demo@testrigor-mail.com",
+                    "password": "CustomerDemo!2026",
+                    "role": "customer",
+                    "deliverByEmail": true
+                  }
                 }
               }
             }
@@ -48,31 +84,49 @@
             "headers": {
               "Set-Cookie": {
                 "description": "Present only when `skipMfa` created a session.",
-                "schema": { "type": "string" }
+                "schema": {
+                  "type": "string"
+                }
               }
             },
             "content": {
               "application/json": {
                 "schema": {
                   "oneOf": [
-                    { "$ref": "#/components/schemas/SessionResponse" },
-                    { "$ref": "#/components/schemas/ChallengeResponse" }
+                    {
+                      "$ref": "#/components/schemas/SessionResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ChallengeResponse"
+                    }
                   ]
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/Error" },
-          "401": { "$ref": "#/components/responses/Error" },
-          "403": { "$ref": "#/components/responses/Error" },
-          "429": { "$ref": "#/components/responses/Error" },
-          "502": { "$ref": "#/components/responses/Error" }
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "502": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       }
     },
     "/api/auth/verify": {
       "post": {
-        "tags": ["Authentication"],
+        "tags": [
+          "Authentication"
+        ],
         "operationId": "verifyMfa",
         "summary": "Exchange a verification code for a session",
         "description": "Consumes the challenge. A code can be used once, expires after 10 minutes, and locks the challenge after 5 incorrect attempts.",
@@ -81,11 +135,16 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/VerifyRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              },
               "examples": {
                 "policyholder": {
                   "summary": "The policyholder's fixed code",
-                  "value": { "challengeId": "3f6c9a1e-0d2b-4b6f-9f3c-2a1b7d8e5c40", "code": "111111" }
+                  "value": {
+                    "challengeId": "3f6c9a1e-0d2b-4b6f-9f3c-2a1b7d8e5c40",
+                    "code": "111111"
+                  }
                 }
               }
             }
@@ -94,21 +153,47 @@
         "responses": {
           "200": {
             "description": "The code matched and a session cookie was set.",
-            "headers": { "Set-Cookie": { "schema": { "type": "string" } } },
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionResponse" } } }
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
           },
-          "400": { "$ref": "#/components/responses/Error" },
-          "401": { "$ref": "#/components/responses/Error" },
-          "409": { "$ref": "#/components/responses/Error" },
-          "410": { "$ref": "#/components/responses/Error" },
-          "429": { "$ref": "#/components/responses/Error" },
-          "500": { "$ref": "#/components/responses/Error" }
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       }
     },
     "/api/auth/session": {
       "get": {
-        "tags": ["Authentication"],
+        "tags": [
+          "Authentication"
+        ],
         "operationId": "getSession",
         "summary": "Read the signed-in account",
         "description": "Answers with `user: null` rather than 401 when there is no valid session, so the client can render the sign-in screen without treating it as an error.",
@@ -120,12 +205,18 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["user"],
+                  "required": [
+                    "user"
+                  ],
                   "properties": {
                     "user": {
                       "oneOf": [
-                        { "$ref": "#/components/schemas/User" },
-                        { "type": "null" }
+                        {
+                          "$ref": "#/components/schemas/User"
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     }
                   }
@@ -138,7 +229,9 @@
     },
     "/api/auth/logout": {
       "post": {
-        "tags": ["Authentication"],
+        "tags": [
+          "Authentication"
+        ],
         "operationId": "logout",
         "summary": "Clear the session cookie",
         "responses": {
@@ -149,8 +242,15 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["ok"],
-                  "properties": { "ok": { "type": "boolean", "const": true } }
+                  "required": [
+                    "ok"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  }
                 }
               }
             }
@@ -160,7 +260,9 @@
     },
     "/api/auth/account": {
       "delete": {
-        "tags": ["Authentication"],
+        "tags": [
+          "Authentication"
+        ],
         "operationId": "deleteAccount",
         "summary": "Delete the signed-in account",
         "description": "Removes the user, its pending registrations and its verification challenges. The two fixed demo accounts are protected so shared QA credentials always work. The shared workflow state is never affected.",
@@ -168,11 +270,16 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/DeleteAccountRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountRequest"
+              },
               "examples": {
                 "confirmed": {
                   "summary": "Password plus the literal word DELETE",
-                  "value": { "password": "MyDemoPassword1", "confirmation": "DELETE" }
+                  "value": {
+                    "password": "MyDemoPassword1",
+                    "confirmation": "DELETE"
+                  }
                 }
               }
             }
@@ -186,31 +293,54 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["ok"],
-                  "properties": { "ok": { "type": "boolean", "const": true } }
+                  "required": [
+                    "ok"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/Error" },
-          "401": { "$ref": "#/components/responses/Error" },
-          "403": { "$ref": "#/components/responses/Error" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       }
     },
     "/api/demo-state": {
       "get": {
-        "tags": ["Demo state"],
+        "tags": [
+          "Demo state"
+        ],
         "operationId": "getDemoState",
         "summary": "Read the shared workflow state",
         "responses": {
-          "200": { "$ref": "#/components/responses/DemoState" },
-          "401": { "$ref": "#/components/responses/Error" }
+          "200": {
+            "$ref": "#/components/responses/DemoState"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       },
       "patch": {
-        "tags": ["Demo state"],
+        "tags": [
+          "Demo state"
+        ],
         "operationId": "updateDemoState",
         "summary": "Apply one workflow transition",
         "description": "The single write endpoint. The signed-in role decides which actions are permitted: the policyholder quotes, buys, updates details, files and documents claims, and pays; the agent reviews, decides and settles. Both may message.",
@@ -218,57 +348,121 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/DemoStateActionRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/DemoStateActionRequest"
+              },
               "examples": {
                 "requestQuote": {
                   "summary": "Price a different coverage level",
-                  "value": { "action": "request-quote", "coverage": "Comprehensive" }
+                  "value": {
+                    "action": "request-quote",
+                    "coverage": "Comprehensive"
+                  }
                 },
                 "fileSmallClaim": {
                   "summary": "At or under $2,000, so approved automatically",
-                  "value": { "action": "file-claim", "claim": { "type": "Glass", "incidentDate": "2026-07-18", "description": "Stone chip in the windscreen on the motorway.", "estimatedAmount": 640 } }
+                  "value": {
+                    "action": "file-claim",
+                    "claim": {
+                      "type": "Glass",
+                      "incidentDate": "2026-07-18",
+                      "description": "Stone chip in the windscreen on the motorway.",
+                      "estimatedAmount": 640
+                    }
+                  }
                 },
                 "fileLargeClaim": {
                   "summary": "Above $2,000, so it starts as pending review",
-                  "value": { "action": "file-claim", "claim": { "type": "Collision", "incidentDate": "2026-07-18", "description": "Rear-ended at a junction; bumper and boot lid damaged.", "estimatedAmount": 4200 } }
+                  "value": {
+                    "action": "file-claim",
+                    "claim": {
+                      "type": "Collision",
+                      "incidentDate": "2026-07-18",
+                      "description": "Rear-ended at a junction; bumper and boot lid damaged.",
+                      "estimatedAmount": 4200
+                    }
+                  }
                 },
                 "attachDocument": {
                   "summary": "Record a file name against the claim",
-                  "value": { "action": "upload-claim-document", "document": { "fileName": "accident-photo.jpg", "sizeLabel": "1.4 MB" } }
+                  "value": {
+                    "action": "upload-claim-document",
+                    "document": {
+                      "fileName": "accident-photo.jpg",
+                      "sizeLabel": "1.4 MB"
+                    }
+                  }
                 },
                 "approveClaim": {
                   "summary": "Agent decision, note required",
-                  "value": { "action": "approve-claim", "reviewNote": "Damage is consistent with the photos and covered under the policy." }
+                  "value": {
+                    "action": "approve-claim",
+                    "reviewNote": "Damage is consistent with the photos and covered under the policy."
+                  }
                 },
                 "payInvoiceAccepted": {
                   "summary": "The one card this demo accepts",
-                  "value": { "action": "pay-invoice", "card": { "nameOnCard": "Alex Carter", "cardNumber": "4111111111111111", "expiry": "12/30", "cvv": "123" } }
+                  "value": {
+                    "action": "pay-invoice",
+                    "card": {
+                      "nameOnCard": "Alex Carter",
+                      "cardNumber": "4111111111111111",
+                      "expiry": "12/30",
+                      "cvv": "123"
+                    }
+                  }
                 },
                 "payInvoiceDeclined": {
                   "summary": "Any other well-formed card is declined with 409",
-                  "value": { "action": "pay-invoice", "card": { "nameOnCard": "Alex Carter", "cardNumber": "5555555555554444", "expiry": "01/29", "cvv": "999" } }
+                  "value": {
+                    "action": "pay-invoice",
+                    "card": {
+                      "nameOnCard": "Alex Carter",
+                      "cardNumber": "5555555555554444",
+                      "expiry": "01/29",
+                      "cvv": "999"
+                    }
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "$ref": "#/components/responses/DemoState" },
-          "400": { "$ref": "#/components/responses/Error" },
-          "401": { "$ref": "#/components/responses/Error" },
-          "403": { "$ref": "#/components/responses/Error" },
-          "409": { "$ref": "#/components/responses/Error" }
+          "200": {
+            "$ref": "#/components/responses/DemoState"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       },
       "delete": {
-        "tags": ["Demo state"],
+        "tags": [
+          "Demo state"
+        ],
         "operationId": "resetDemoState",
         "summary": "Restore the seed workflow state",
         "description": "Available to the two fixed demo accounts only. The environment also resets itself every 24 hours.",
         "responses": {
-          "200": { "$ref": "#/components/responses/DemoState" },
-          "401": { "$ref": "#/components/responses/Error" },
-          "403": { "$ref": "#/components/responses/Error" }
+          "200": {
+            "$ref": "#/components/responses/DemoState"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       }
     }
@@ -285,7 +479,13 @@
     "responses": {
       "Error": {
         "description": "The request was refused. The message is written for an integrator.",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       },
       "DemoState": {
         "description": "The shared workflow state after the request.",
@@ -294,8 +494,14 @@
             "schema": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["state"],
-              "properties": { "state": { "$ref": "#/components/schemas/DemoState" } }
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "$ref": "#/components/schemas/DemoState"
+                }
+              }
             }
           }
         }
@@ -305,43 +511,92 @@
       "Error": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["error"],
+        "required": [
+          "error"
+        ],
         "properties": {
-          "error": { "type": "string", "examples": ["Only a claim in review can be decided."] }
+          "error": {
+            "type": "string",
+            "examples": [
+              "Only a claim in review can be decided."
+            ]
+          }
         }
       },
       "Role": {
         "type": "string",
-        "enum": ["customer", "agent"],
+        "enum": [
+          "customer",
+          "agent"
+        ],
         "description": "`customer` is the policyholder; `agent` is the claims agent."
       },
       "User": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["email", "name", "role"],
+        "required": [
+          "email",
+          "name",
+          "role"
+        ],
         "properties": {
-          "email": { "type": "string", "format": "email" },
-          "name": { "type": "string" },
-          "role": { "$ref": "#/components/schemas/Role" }
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
         }
       },
       "SessionResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["user"],
-        "properties": { "user": { "$ref": "#/components/schemas/User" } }
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
       },
       "ChallengeResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["challengeId", "destination", "expiresInSeconds", "codeDelivery"],
+        "required": [
+          "challengeId",
+          "destination",
+          "expiresInSeconds",
+          "codeDelivery"
+        ],
         "properties": {
-          "challengeId": { "type": "string", "format": "uuid" },
-          "destination": { "type": "string", "description": "The masked email the challenge belongs to.", "examples": ["cus•••••••••@testrigor-mail.com"] },
-          "expiresInSeconds": { "type": "integer", "examples": [600] },
+          "challengeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "destination": {
+            "type": "string",
+            "description": "The masked email the challenge belongs to.",
+            "examples": [
+              "cus•••••••••@testrigor-mail.com"
+            ]
+          },
+          "expiresInSeconds": {
+            "type": "integer",
+            "examples": [
+              600
+            ]
+          },
           "codeDelivery": {
             "type": "string",
-            "enum": ["fixed", "email"],
+            "enum": [
+              "fixed",
+              "email"
+            ],
             "description": "`fixed` means the code is one of the documented constants and no email was sent. `email` means a real message was delivered."
           }
         }
@@ -349,251 +604,665 @@
       "LoginRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "properties": {
-          "email": { "type": "string", "format": "email" },
-          "password": { "type": "string", "minLength": 8 },
-          "role": { "$ref": "#/components/schemas/Role" },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
           "skipMfa": {
             "type": "boolean",
             "default": false,
             "description": "Fixed demo accounts only. Any other account gets 403."
+          },
+          "deliverByEmail": {
+            "type": "boolean",
+            "default": false,
+            "description": "Ask for a real emailed code instead of the documented fixed one. Only affects the two shared demo accounts, and only when a mail provider is configured; otherwise the response comes back with `codeDelivery: \"fixed\"`. An account you registered always verifies by email when a provider is configured."
           }
         }
       },
       "VerifyRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["challengeId", "code"],
+        "required": [
+          "challengeId",
+          "code"
+        ],
         "properties": {
-          "challengeId": { "type": "string", "format": "uuid" },
-          "code": { "type": "string", "pattern": "^\\d{6}$" }
+          "challengeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$"
+          }
         }
       },
       "DeleteAccountRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["password", "confirmation"],
+        "required": [
+          "password",
+          "confirmation"
+        ],
         "properties": {
-          "password": { "type": "string" },
-          "confirmation": { "type": "string", "const": "DELETE" }
+          "password": {
+            "type": "string"
+          },
+          "confirmation": {
+            "type": "string",
+            "const": "DELETE"
+          }
         }
       },
       "CoverageTier": {
         "type": "string",
-        "enum": ["Liability", "Standard", "Comprehensive"]
+        "enum": [
+          "Liability",
+          "Standard",
+          "Comprehensive"
+        ]
       },
       "VehicleUse": {
         "type": "string",
-        "enum": ["Commute", "Pleasure", "Business"]
+        "enum": [
+          "Commute",
+          "Pleasure",
+          "Business"
+        ]
       },
       "ClaimType": {
         "type": "string",
-        "enum": ["Collision", "Theft", "Glass", "Weather"]
+        "enum": [
+          "Collision",
+          "Theft",
+          "Glass",
+          "Weather"
+        ]
       },
       "ClaimStatus": {
         "type": "string",
-        "enum": ["submitted", "in-review", "more-info-needed", "approved", "rejected", "settled"],
+        "enum": [
+          "submitted",
+          "in-review",
+          "more-info-needed",
+          "approved",
+          "rejected",
+          "settled"
+        ],
         "description": "`submitted` is Pending Review. An estimate at or under $2,000 skips it and arrives as `approved`."
       },
       "Vehicle": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["year", "make", "model", "vin", "plate", "primaryUse", "updatedAt"],
+        "required": [
+          "year",
+          "make",
+          "model",
+          "vin",
+          "plate",
+          "primaryUse",
+          "updatedAt"
+        ],
         "properties": {
-          "year": { "type": "string", "pattern": "^(19|20)\\d{2}$" },
-          "make": { "type": "string", "maxLength": 40 },
-          "model": { "type": "string", "maxLength": 40 },
-          "vin": { "type": "string", "maxLength": 20 },
-          "plate": { "type": "string", "maxLength": 12 },
-          "primaryUse": { "$ref": "#/components/schemas/VehicleUse" },
-          "updatedAt": { "type": "string" }
+          "year": {
+            "type": "string",
+            "pattern": "^(19|20)\\d{2}$"
+          },
+          "make": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "vin": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "plate": {
+            "type": "string",
+            "maxLength": 12
+          },
+          "primaryUse": {
+            "$ref": "#/components/schemas/VehicleUse"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
         }
       },
       "VehicleInput": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["year", "make", "model", "vin", "plate", "primaryUse"],
+        "required": [
+          "year",
+          "make",
+          "model",
+          "vin",
+          "plate",
+          "primaryUse"
+        ],
         "properties": {
-          "year": { "type": "string", "pattern": "^(19|20)\\d{2}$" },
-          "make": { "type": "string", "maxLength": 40 },
-          "model": { "type": "string", "maxLength": 40 },
-          "vin": { "type": "string", "maxLength": 20 },
-          "plate": { "type": "string", "maxLength": 12 },
-          "primaryUse": { "$ref": "#/components/schemas/VehicleUse" }
+          "year": {
+            "type": "string",
+            "pattern": "^(19|20)\\d{2}$"
+          },
+          "make": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "vin": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "plate": {
+            "type": "string",
+            "maxLength": 12
+          },
+          "primaryUse": {
+            "$ref": "#/components/schemas/VehicleUse"
+          }
         }
       },
       "Driver": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["fullName", "licenseNumber", "licenseState", "yearsLicensed", "updatedAt"],
+        "required": [
+          "fullName",
+          "licenseNumber",
+          "licenseState",
+          "yearsLicensed",
+          "updatedAt"
+        ],
         "properties": {
-          "fullName": { "type": "string", "maxLength": 80 },
-          "licenseNumber": { "type": "string", "maxLength": 30 },
-          "licenseState": { "type": "string", "maxLength": 40 },
-          "yearsLicensed": { "type": "string", "pattern": "^\\d{1,2}$" },
-          "updatedAt": { "type": "string" }
+          "fullName": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "licenseNumber": {
+            "type": "string",
+            "maxLength": 30
+          },
+          "licenseState": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "yearsLicensed": {
+            "type": "string",
+            "pattern": "^\\d{1,2}$"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
         }
       },
       "DriverInput": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["fullName", "licenseNumber", "licenseState", "yearsLicensed"],
+        "required": [
+          "fullName",
+          "licenseNumber",
+          "licenseState",
+          "yearsLicensed"
+        ],
         "properties": {
-          "fullName": { "type": "string", "maxLength": 80 },
-          "licenseNumber": { "type": "string", "maxLength": 30 },
-          "licenseState": { "type": "string", "maxLength": 40 },
-          "yearsLicensed": { "type": "string", "pattern": "^\\d{1,2}$" }
+          "fullName": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "licenseNumber": {
+            "type": "string",
+            "maxLength": 30
+          },
+          "licenseState": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "yearsLicensed": {
+            "type": "string",
+            "pattern": "^\\d{1,2}$"
+          }
         }
       },
       "Policy": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["number", "coverage", "annualPremium", "deductible", "effectiveFrom", "renewsOn", "updatedAt"],
+        "required": [
+          "number",
+          "coverage",
+          "annualPremium",
+          "deductible",
+          "effectiveFrom",
+          "renewsOn",
+          "updatedAt"
+        ],
         "properties": {
-          "number": { "type": "string", "examples": ["NL-2026-004821"] },
-          "coverage": { "$ref": "#/components/schemas/CoverageTier" },
-          "annualPremium": { "type": "integer", "minimum": 0, "description": "Whole US dollars." },
-          "deductible": { "type": "integer", "minimum": 0 },
-          "effectiveFrom": { "type": "string" },
-          "renewsOn": { "type": "string" },
-          "updatedAt": { "type": "string" }
+          "number": {
+            "type": "string",
+            "examples": [
+              "NL-2026-004821"
+            ]
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageTier"
+          },
+          "annualPremium": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Whole US dollars."
+          },
+          "deductible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "effectiveFrom": {
+            "type": "string"
+          },
+          "renewsOn": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
         }
       },
       "Quote": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["reference", "coverage", "annualPremium", "monthlyPremium", "deductible", "breakdown", "quotedAt"],
+        "required": [
+          "reference",
+          "coverage",
+          "annualPremium",
+          "monthlyPremium",
+          "deductible",
+          "breakdown",
+          "quotedAt"
+        ],
         "properties": {
-          "reference": { "type": "string", "examples": ["QT-2026-3390"] },
-          "coverage": { "$ref": "#/components/schemas/CoverageTier" },
-          "annualPremium": { "type": "integer", "minimum": 0 },
-          "monthlyPremium": { "type": "integer", "minimum": 0 },
-          "deductible": { "type": "integer", "minimum": 0 },
+          "reference": {
+            "type": "string",
+            "examples": [
+              "QT-2026-3390"
+            ]
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageTier"
+          },
+          "annualPremium": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "monthlyPremium": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deductible": {
+            "type": "integer",
+            "minimum": 0
+          },
           "breakdown": {
             "type": "array",
             "description": "Every line that moved the price, base rate first.",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["label", "amount"],
+              "required": [
+                "label",
+                "amount"
+              ],
               "properties": {
-                "label": { "type": "string", "maxLength": 60 },
-                "amount": { "type": "integer", "minimum": 0 }
+                "label": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "amount": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               }
             }
           },
-          "quotedAt": { "type": "string" }
+          "quotedAt": {
+            "type": "string"
+          }
         }
       },
       "ClaimDocument": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "fileName", "sizeLabel", "uploadedAt"],
+        "required": [
+          "id",
+          "fileName",
+          "sizeLabel",
+          "uploadedAt"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "fileName": { "type": "string", "maxLength": 160 },
-          "sizeLabel": { "type": "string" },
-          "uploadedAt": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "sizeLabel": {
+            "type": "string"
+          },
+          "uploadedAt": {
+            "type": "string"
+          }
         },
         "description": "No file is uploaded, read, or stored. Only the name and size are recorded."
       },
       "ClaimInput": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["type", "incidentDate", "description", "estimatedAmount"],
+        "required": [
+          "type",
+          "incidentDate",
+          "description",
+          "estimatedAmount"
+        ],
         "properties": {
-          "type": { "$ref": "#/components/schemas/ClaimType" },
-          "incidentDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-          "description": { "type": "string", "maxLength": 400 },
-          "estimatedAmount": { "type": "integer", "minimum": 1, "maximum": 100000, "description": "Whole US dollars. At or under 2000 the claim is approved automatically." }
+          "type": {
+            "$ref": "#/components/schemas/ClaimType"
+          },
+          "incidentDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "estimatedAmount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "description": "Whole US dollars. At or under 2000 the claim is approved automatically."
+          }
         }
       },
       "Claim": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["reference", "type", "incidentDate", "description", "estimatedAmount", "status", "filedAt", "autoApproved", "reviewNote", "documents", "settlementAmount"],
+        "required": [
+          "reference",
+          "type",
+          "incidentDate",
+          "description",
+          "estimatedAmount",
+          "status",
+          "filedAt",
+          "autoApproved",
+          "reviewNote",
+          "documents",
+          "settlementAmount"
+        ],
         "properties": {
-          "reference": { "type": "string", "examples": ["CLM-2026-7714"] },
-          "type": { "$ref": "#/components/schemas/ClaimType" },
-          "incidentDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-          "description": { "type": "string", "maxLength": 400 },
-          "estimatedAmount": { "type": "integer", "minimum": 0 },
-          "status": { "$ref": "#/components/schemas/ClaimStatus" },
-          "filedAt": { "type": "string" },
-          "autoApproved": { "type": "boolean", "description": "True when the fast-track rule decided this, not an agent." },
-          "reviewNote": { "type": ["string", "null"], "maxLength": 400 },
-          "documents": { "type": "array", "items": { "$ref": "#/components/schemas/ClaimDocument" } },
-          "settlementAmount": { "type": ["integer", "null"], "minimum": 0, "description": "The estimate less the policy deductible, floored at zero. Null until settled." }
+          "reference": {
+            "type": "string",
+            "examples": [
+              "CLM-2026-7714"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ClaimType"
+          },
+          "incidentDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "estimatedAmount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ClaimStatus"
+          },
+          "filedAt": {
+            "type": "string"
+          },
+          "autoApproved": {
+            "type": "boolean",
+            "description": "True when the fast-track rule decided this, not an agent."
+          },
+          "reviewNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 400
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaimDocument"
+            }
+          },
+          "settlementAmount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "The estimate less the policy deductible, floored at zero. Null until settled."
+          }
         }
       },
       "Invoice": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "description", "amount", "dueOn", "status", "paidWith", "paidAt"],
+        "required": [
+          "id",
+          "description",
+          "amount",
+          "dueOn",
+          "status",
+          "paidWith",
+          "paidAt"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "description": { "type": "string", "maxLength": 200 },
-          "amount": { "type": "integer", "minimum": 0 },
-          "dueOn": { "type": "string" },
-          "status": { "type": "string", "enum": ["unpaid", "paid"] },
-          "paidWith": { "type": ["string", "null"], "examples": ["Visa ending 1111"] },
-          "paidAt": { "type": ["string", "null"] }
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dueOn": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unpaid",
+              "paid"
+            ]
+          },
+          "paidWith": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "Visa ending 1111"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       },
       "CardInput": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["nameOnCard", "cardNumber", "expiry", "cvv"],
+        "required": [
+          "nameOnCard",
+          "cardNumber",
+          "expiry",
+          "cvv"
+        ],
         "properties": {
-          "nameOnCard": { "type": "string", "maxLength": 80 },
-          "cardNumber": { "type": "string", "description": "16 digits, spaces and hyphens allowed. Only 4111111111111111 is accepted." },
-          "expiry": { "type": "string", "pattern": "^(0[1-9]|1[0-2])/\\d{2}$" },
-          "cvv": { "type": "string", "pattern": "^\\d{3}$" }
+          "nameOnCard": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "cardNumber": {
+            "type": "string",
+            "description": "16 digits, spaces and hyphens allowed. Only 4111111111111111 is accepted."
+          },
+          "expiry": {
+            "type": "string",
+            "pattern": "^(0[1-9]|1[0-2])/\\d{2}$"
+          },
+          "cvv": {
+            "type": "string",
+            "pattern": "^\\d{3}$"
+          }
         }
       },
       "DemoMessage": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "sender", "body", "sentAt"],
+        "required": [
+          "id",
+          "sender",
+          "body",
+          "sentAt"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "sender": { "$ref": "#/components/schemas/Role" },
-          "body": { "type": "string", "maxLength": 500 },
-          "sentAt": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "sender": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "sentAt": {
+            "type": "string"
+          }
         }
       },
       "MessageReadState": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["customer", "agent"],
+        "required": [
+          "customer",
+          "agent"
+        ],
         "description": "The last message id each role has read. Used to derive an unread count.",
         "properties": {
-          "customer": { "type": ["string", "null"] },
-          "agent": { "type": ["string", "null"] }
+          "customer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       },
       "DemoState": {
         "type": "object",
         "additionalProperties": false,
         "description": "One row, shared by every session in the environment.",
-        "required": ["policy", "vehicle", "driver", "quote", "claim", "invoice", "messages", "lastRead"],
+        "required": [
+          "policy",
+          "vehicle",
+          "driver",
+          "quote",
+          "claim",
+          "invoice",
+          "messages",
+          "lastRead"
+        ],
         "properties": {
-          "policy": { "$ref": "#/components/schemas/Policy" },
-          "vehicle": { "$ref": "#/components/schemas/Vehicle" },
-          "driver": { "$ref": "#/components/schemas/Driver" },
-          "quote": { "oneOf": [{ "$ref": "#/components/schemas/Quote" }, { "type": "null" }] },
-          "claim": { "oneOf": [{ "$ref": "#/components/schemas/Claim" }, { "type": "null" }] },
-          "invoice": { "$ref": "#/components/schemas/Invoice" },
-          "messages": { "type": "array", "items": { "$ref": "#/components/schemas/DemoMessage" } },
-          "lastRead": { "$ref": "#/components/schemas/MessageReadState" }
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "vehicle": {
+            "$ref": "#/components/schemas/Vehicle"
+          },
+          "driver": {
+            "$ref": "#/components/schemas/Driver"
+          },
+          "quote": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Quote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "claim": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Claim"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "invoice": {
+            "$ref": "#/components/schemas/Invoice"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DemoMessage"
+            }
+          },
+          "lastRead": {
+            "$ref": "#/components/schemas/MessageReadState"
+          }
         }
       },
       "DemoStateActionRequest": {
         "type": "object",
         "additionalProperties": false,
         "description": "One action plus whatever that action needs. Fields not relevant to the action are ignored.",
-        "required": ["action"],
+        "required": [
+          "action"
+        ],
         "properties": {
           "action": {
             "type": "string",
@@ -616,25 +1285,54 @@
               "settle-claim"
             ]
           },
-          "coverage": { "$ref": "#/components/schemas/CoverageTier" },
-          "vehicle": { "$ref": "#/components/schemas/VehicleInput" },
-          "driver": { "$ref": "#/components/schemas/DriverInput" },
-          "claim": { "$ref": "#/components/schemas/ClaimInput" },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageTier"
+          },
+          "vehicle": {
+            "$ref": "#/components/schemas/VehicleInput"
+          },
+          "driver": {
+            "$ref": "#/components/schemas/DriverInput"
+          },
+          "claim": {
+            "$ref": "#/components/schemas/ClaimInput"
+          },
           "document": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["fileName"],
+            "required": [
+              "fileName"
+            ],
             "properties": {
-              "fileName": { "type": "string", "maxLength": 160 },
-              "sizeLabel": { "type": "string", "maxLength": 20 }
+              "fileName": {
+                "type": "string",
+                "maxLength": 160
+              },
+              "sizeLabel": {
+                "type": "string",
+                "maxLength": 20
+              }
             }
           },
-          "reviewNote": { "type": "string", "maxLength": 400, "description": "Required by every agent decision." },
-          "card": { "$ref": "#/components/schemas/CardInput" },
-          "messageBody": { "type": "string", "maxLength": 500 }
+          "reviewNote": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "Required by every agent decision."
+          },
+          "card": {
+            "$ref": "#/components/schemas/CardInput"
+          },
+          "messageBody": {
+            "type": "string",
+            "maxLength": 500
+          }
         }
       }
     }
   },
-  "security": [{ "sessionCookie": [] }]
+  "security": [
+    {
+      "sessionCookie": []
+    }
+  ]
 }

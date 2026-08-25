@@ -112,18 +112,38 @@ a demo audience seeing "Approved" with no agent action needs to be told why.
 Real password hashing, real signed sessions, real single-use codes — and
 deliberately fake code *delivery* for the two shared accounts.
 
-`planVerification(account)` decides:
+`chooseDelivery` in `lib/mfa-policy.ts` owns the decision and is pure, so both
+branches are provable without a mail provider, a database, or a network.
+`planVerification` only supplies the environment and picks the matching code.
 
-| Account | Delivery | Code |
-| --- | --- | --- |
-| Fixed demo account | `fixed` | `111111` / `222222`, always, even when mail is configured |
-| Self-created, `BREVO_API_KEY` set | `email` | Random, delivered by Brevo |
-| Self-created, no mail provider | `fixed` | `123456` |
+| Account | Mail provider | Asked for email | Delivery | Code |
+| --- | --- | --- | --- | --- |
+| Shared demo | no | either | `fixed` | `111111` / `222222` |
+| Shared demo | yes | no | `fixed` | `111111` / `222222` |
+| Shared demo | yes | yes | `email` | Random, via Brevo |
+| Registered | no | — | `fixed` | `123456` |
+| Registered | yes | — | `email` | Random, via Brevo |
 
-The fixed accounts never use email even when it is available: shared QA
-credentials that depend on a mailbox are shared credentials that break. The
-fallback for self-created accounts means a fresh checkout with no secrets still
-completes the whole sign-in flow.
+Three rules, in order:
+
+1. **No mail provider means no email.** A local checkout and CI have no Brevo
+   key and the sign-in flow still has to complete there. Without this the demo
+   would need a cloud account just to run.
+2. **A shared demo account uses its printed code unless asked otherwise.** Those
+   credentials are on the screen and in every automated suite; tying them to a
+   mailbox means one mail outage breaks every test and every live demo at once.
+   The checkbox opts one sign-in into the mailbox flow.
+3. **A registered account uses email.** Its address is real and was chosen by
+   whoever owns it, which is what verification is actually for.
+
+Two consequences worth keeping:
+
+- **The preference does not persist.** It resets with the account tab, because a
+  preference that survived would make the next automated run depend on what the
+  last human clicked.
+- **The fallback announces itself.** Requesting email in an environment with no
+  provider shows the printed code *and* says why. A silent fallback would look
+  identical to the default and would hide a misconfigured deployment.
 
 Rate limiting applies only when `delivery` is `email`. It exists to protect a
 mail provider; throttling a fixed code would only slow a test suite down.

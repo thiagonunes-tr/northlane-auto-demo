@@ -1,11 +1,15 @@
 import { env } from "cloudflare:workers";
 import { getStoredUser, storeUser } from "./mfa-db";
 
+import { chooseDelivery, type CodeDelivery } from "./mfa-policy";
+
 export {
   HOURLY_EMAIL_LIMIT,
   MAX_MFA_ATTEMPTS,
   RESEND_COOLDOWN_MS,
+  chooseDelivery,
 } from "./mfa-policy";
+export type { CodeDelivery } from "./mfa-policy";
 
 export type DemoRole = "customer" | "agent";
 
@@ -38,16 +42,6 @@ export const MFA_TTL_MS = 10 * 60 * 1000;
 /* -------------------------------------------------------------------------- */
 /* Hybrid two-step verification                                                */
 /* -------------------------------------------------------------------------- */
-
-/**
- * How a verification code reached the person signing in.
- *
- * `fixed` is the demo build rule: a code that is written on the sign-in screen
- * and in the docs, so a test never has to read a mailbox. `email` is the real
- * path, used only for accounts a visitor creates and only when a mail provider
- * is actually configured.
- */
-export type CodeDelivery = "fixed" | "email";
 
 /** The per-role codes the build rules specify. */
 export const FIXED_MFA_CODES: Record<DemoRole, string> = {
@@ -94,22 +88,27 @@ export function canSendEmail(): boolean {
 }
 
 /**
- * Decides how this account verifies, and with which code.
+ * Decides how this sign-in verifies, and with which code.
  *
- * The two fixed demo accounts always use their documented per-role code, even
- * when mail is configured: shared QA credentials that depend on a mailbox are
- * shared credentials that break.
+ * The rules live in `chooseDelivery`, which is pure. This function only supplies
+ * the environment it needs and picks the matching code: a random one for email,
+ * and otherwise the documented constant for whichever kind of account it is.
  */
 export function planVerification(
   account: DemoAccount,
+  requestedEmail = false,
 ): { delivery: CodeDelivery; code: string } {
-  if (isDemoAccount(account.email)) {
-    return { delivery: "fixed", code: FIXED_MFA_CODES[account.role] };
-  }
-  if (canSendEmail()) {
-    return { delivery: "email", code: createMfaCode() };
-  }
-  return { delivery: "fixed", code: FALLBACK_MFA_CODE };
+  const shared = isDemoAccount(account.email);
+  const delivery = chooseDelivery({
+    isSharedDemoAccount: shared,
+    mailConfigured: canSendEmail(),
+    requestedEmail,
+  });
+  if (delivery === "email") return { delivery, code: createMfaCode() };
+  return {
+    delivery,
+    code: shared ? FIXED_MFA_CODES[account.role] : FALLBACK_MFA_CODE,
+  };
 }
 
 export function isSecureRequest(request: {
